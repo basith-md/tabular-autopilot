@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>tabular-autopilot report — {{ dataset_name }}</title>
+<style>
+  :root { --bg:#0f1620; --panel:#161f2c; --text:#e7edf3; --muted:#9db0c3; --accent:#5aa9e6; --border:#25324420; }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding: 0 0 4rem; }
+  header { background: linear-gradient(135deg,#12314f,#0f1620); padding: 2.5rem 3rem; border-bottom: 1px solid #223247; }
+  header h1 { margin:0 0 .3rem; font-size: 1.8rem; }
+  header p { margin:0; color: var(--muted); }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+  section { margin-top: 2.5rem; }
+  h2 { border-bottom: 2px solid #223247; padding-bottom: .4rem; font-size: 1.3rem; }
+  h3 { color: var(--accent); font-size: 1.05rem; margin-bottom: .4rem; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0 1.4rem; font-size: .85rem; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #223247; }
+  th { color: var(--muted); font-weight: 600; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .card { background: var(--panel); border: 1px solid #223247; border-radius: 10px; padding: 1.2rem 1.4rem; }
+  .metric-row { display:flex; gap: 1rem; flex-wrap: wrap; margin: .8rem 0; }
+  .metric { background: var(--panel); border: 1px solid #223247; border-radius: 10px; padding: .8rem 1.2rem; min-width: 140px; }
+  .metric .label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+  .metric .value { font-size: 1.4rem; font-weight: 600; color: var(--accent); }
+  img { max-width: 100%; border-radius: 8px; }
+  pre { background: #0b1119; border: 1px solid #223247; border-radius: 8px; padding: 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.4; }
+  .badge { display:inline-block; padding: .15rem .5rem; border-radius: 6px; font-size: .72rem; background:#223247; color: var(--muted); margin-left: .4rem; }
+  .warn { color: #e6b85a; }
+  .ok { color: #6fce8f; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>tabular-autopilot</h1>
+  <p>Automated analysis report for <strong>{{ dataset_name }}</strong> &middot; {{ profile.n_rows }} rows &times; {{ profile.n_cols }} columns
+  {% if schema.task %}<span class="badge">task: {{ schema.task }}</span>{% endif %}
+  {% if schema.target %}<span class="badge">target: {{ schema.target }}</span>{% endif %}
+  </p>
+</header>
+<main>
+
+<section>
+  <h2>1. Schema &amp; column roles</h2>
+  <p class="muted">Every column below was assigned a role automatically (numeric, categorical, datetime, geospatial, text, identifier, constant) — this drives every downstream cleaning, feature-engineering and modeling decision.</p>
+  <table>
+    <tr><th>Column</th><th>Role</th><th>Dtype</th><th>% Missing</th><th># Unique</th></tr>
+    {% for col in columns_table %}
+    <tr><td>{{ col.name }}</td><td>{{ col.role }}</td><td>{{ col.dtype }}</td><td>{{ col.pct_missing }}%</td><td>{{ col.n_unique }}</td></tr>
+    {% endfor %}
+  </table>
+  {% if profile.duplicate_rows %}<p class="warn">{{ profile.duplicate_rows }} duplicate row(s) detected.</p>{% endif %}
+</section>
+
+<section>
+  <h2>2. Data profile</h2>
+  <div class="grid">
+    {% if charts.missingness %}<div class="card"><h3>Missing values</h3><img src="{{ charts.missingness }}"></div>{% endif %}
+    {% if charts.numeric_distributions %}<div class="card"><h3>Numeric distributions</h3><img src="{{ charts.numeric_distributions }}"></div>{% endif %}
+  </div>
+  {% if profile.numeric_profiles %}
+  <h3 style="margin-top:1.5rem;">Numeric summary</h3>
+  <table>
+    <tr><th>Column</th><th>Mean</th><th>Std</th><th>Median</th><th>Skew</th><th>Outliers (IQR)</th></tr>
+    {% for name, p in profile.numeric_profiles.items() %}
+    <tr>
+      <td>{{ name }}</td><td>{{ "%.2f"|format(p.mean) }}</td><td>{{ "%.2f"|format(p.std) }}</td>
+      <td>{{ "%.2f"|format(p.median) }}</td>
+      <td>{{ "%.2f"|format(p.skew) }}{% if p.is_skewed %} <span class="warn">(skewed)</span>{% endif %}</td>
+      <td>{{ p.n_outliers }} ({{ "%.1f"|format(p.pct_outliers*100) }}%)</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>3. Relationships</h2>
+  <div class="grid">
+    {% if charts.correlation_heatmap %}<div class="card"><h3>Correlation heatmap</h3><img src="{{ charts.correlation_heatmap }}"></div>{% endif %}
+    {% if charts.target_by_category %}<div class="card"><h3>Target by category</h3><img src="{{ charts.target_by_category }}"></div>{% endif %}
+  </div>
+  {% if charts.geo_scatter %}
+  <div class="card" style="margin-top:1.5rem;"><h3>Geospatial distribution</h3><img src="{{ charts.geo_scatter }}"></div>
+  {% endif %}
+</section>
+
+<section>
+  <h2>4. Cleaning &amp; feature engineering</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Cleaning</h3>
+      <p class="muted">Numeric columns imputed (median): {{ cleaning.imputed_numeric.keys()|list|join(", ") or "none" }}</p>
+      <p class="muted">Categorical columns imputed (mode): {{ cleaning.imputed_categorical.keys()|list|join(", ") or "none" }}</p>
+      <p class="muted">Log-transformed (right-skewed): {{ cleaning.log_transformed|join(", ") or "none" }}</p>
+    </div>
+    <div class="card">
+      <h3>Feature engineering</h3>
+      <p class="muted">One-hot encoded: {{ fe.one_hot_encoded|join(", ") or "none" }}</p>
+      <p class="muted">Frequency encoded: {{ fe.frequency_encoded|join(", ") or "none" }}</p>
+      <p class="muted">Datetime expanded: {{ fe.datetime_expanded.keys()|list|join(", ") or "none" }}</p>
+      <p class="muted">Geo features added: {{ fe.geo_features_added|join(", ") or "none" }}</p>
+      <p class="muted">Dropped (identifier/constant/text): {{ fe.dropped_columns|join(", ") or "none" }}</p>
+    </div>
+  </div>
+</section>
+
+{% if modeling %}
+<section>
+  <h2>5. Modeling — {{ modeling.task }} on <code>{{ modeling.target }}</code></h2>
+  <p class="muted">Trained on {{ modeling.n_train }} rows, evaluated on {{ modeling.n_test }} held-out rows.</p>
+
+  <h3>Model comparison</h3>
+  <p class="muted">{{ modeling.model_comparison|length }} candidate models trained on an identical train/test split; the report below uses the best performer.</p>
+  <table>
+    <tr><th>Model</th>{% for metric in modeling.metrics.keys() %}<th>{{ metric }}</th>{% endfor %}</tr>
+    {% for name, row in modeling.model_comparison.items() %}
+    <tr {% if name == modeling.best_model_name %}style="color:var(--accent); font-weight:600;"{% endif %}>
+      <td>{{ name }}{% if name == modeling.best_model_name %} <span class="badge">best</span>{% endif %}</td>
+      {% for metric in modeling.metrics.keys() %}<td>{{ "%.4f"|format(row[metric]) if row[metric] is not none else "—" }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Best model — {{ modeling.best_model_name }}</h3>
+  <div class="metric-row">
+    {% for name, val in modeling.metrics.items() %}
+    <div class="metric"><div class="label">{{ name }}</div><div class="value">{{ "%.4f"|format(val) }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="grid">
+    {% if charts.feature_importance %}<div class="card"><h3>Feature importance</h3><img src="{{ charts.feature_importance }}"></div>{% endif %}
+    {% if charts.confusion_matrix %}<div class="card"><h3>Confusion matrix</h3><img src="{{ charts.confusion_matrix }}"></div>{% endif %}
+  </div>
+
+  {% if modeling.baseline and modeling.baseline.kind in ("ols", "logit") %}
+  <h3 style="margin-top:2rem;">Interpretable baseline ({{ modeling.baseline.kind|upper }}) &amp; diagnostics</h3>
+  <div class="metric-row">
+    <div class="metric"><div class="label">{{ "R²" if modeling.baseline.kind == "ols" else "Pseudo R²" }}</div><div class="value">{{ "%.3f"|format(modeling.baseline.pseudo_or_r_squared) }}</div></div>
+    {% if modeling.baseline.adj_r_squared is not none %}<div class="metric"><div class="label">Adj. R²</div><div class="value">{{ "%.3f"|format(modeling.baseline.adj_r_squared) }}</div></div>{% endif %}
+    {% if modeling.baseline.breusch_pagan_pvalue is not none %}
+    <div class="metric"><div class="label">Breusch-Pagan p</div><div class="value {{ 'warn' if modeling.baseline.heteroscedastic else 'ok' }}">{{ "%.4f"|format(modeling.baseline.breusch_pagan_pvalue) }}</div></div>
+    {% endif %}
+  </div>
+  {% if modeling.baseline.dropped_for_multicollinearity %}
+  <p class="warn">Dropped for multicollinearity (VIF &gt; 10): {{ modeling.baseline.dropped_for_multicollinearity|join(", ") }}</p>
+  {% endif %}
+  {% if modeling.baseline.heteroscedastic %}
+  <p class="warn">Breusch-Pagan test indicates heteroscedasticity (p &lt; 0.05) — standard errors on the baseline coefficients may be unreliable.</p>
+  {% elif modeling.baseline.breusch_pagan_pvalue is not none %}
+  <p class="ok">No significant heteroscedasticity detected.</p>
+  {% endif %}
+
+  <div class="grid">
+    {% if charts.residuals_vs_fitted %}<div class="card"><h3>Residuals vs fitted</h3><img src="{{ charts.residuals_vs_fitted }}"></div>{% endif %}
+    {% if charts.qq_plot %}<div class="card"><h3>Q-Q plot</h3><img src="{{ charts.qq_plot }}"></div>{% endif %}
+  </div>
+
+  <h3 style="margin-top:1.5rem;">Full statistical summary</h3>
+  <pre>{{ modeling.baseline.summary_text }}</pre>
+  {% elif modeling.baseline %}
+  <p class="muted">{{ modeling.baseline.note }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if timeseries %}
+<section>
+  <h2>6. Time series diagnostics — <code>{{ timeseries.value_col }}</code> over <code>{{ timeseries.date_col }}</code></h2>
+  <p class="muted">Triggered automatically because the dataset has a datetime column alongside a numeric target — run independent of whether the model above uses that column.</p>
+  <div class="metric-row">
+    <div class="metric"><div class="label">Observations</div><div class="value">{{ timeseries.n_obs }}</div></div>
+    <div class="metric"><div class="label">Trend R²</div><div class="value">{{ "%.3f"|format(timeseries.trend_r_squared) }}</div></div>
+    <div class="metric"><div class="label">ADF p-value</div><div class="value {{ 'ok' if timeseries.is_stationary else 'warn' }}">{{ "%.4f"|format(timeseries.adf_pvalue) }}</div></div>
+  </div>
+  {% if timeseries.is_stationary %}
+  <p class="ok">Augmented Dickey-Fuller test rejects a unit root (p &lt; 0.05) — series appears stationary.</p>
+  {% else %}
+  <p class="warn">Augmented Dickey-Fuller test cannot reject a unit root (p &ge; 0.05) — series appears non-stationary (trend/seasonality likely present).</p>
+  {% endif %}
+  <div class="grid">
+    {% if charts.ts_trend %}<div class="card"><h3>History &amp; forecast</h3><img src="{{ charts.ts_trend }}"></div>{% endif %}
+    {% if charts.ts_acf_pacf %}<div class="card"><h3>ACF / PACF</h3><img src="{{ charts.ts_acf_pacf }}"></div>{% endif %}
+  </div>
+  {% if timeseries.note %}<p class="muted">{{ timeseries.note }}</p>{% endif %}
+</section>
+{% endif %}
+
+<section>
+  <p class="muted" style="text-align:center; margin-top:3rem;">Generated automatically by <strong>tabular-autopilot</strong>.</p>
+</section>
+
+</main>
+</body>
+</html>

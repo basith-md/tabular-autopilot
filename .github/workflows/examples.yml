@@ -1,0 +1,42 @@
+name: Run examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  run-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Generate synthetic retail sales data
+        run: python examples/retail_sales_datetime/generate_data.py
+
+      - name: Run California Housing example (regression + geospatial)
+        run: python examples/california_housing/run_example.py
+
+      - name: Run Titanic example (classification, mixed types)
+        run: python examples/titanic_classification/run_example.py
+
+      - name: Run Retail Sales example (datetime + time series)
+        run: python examples/retail_sales_datetime/run_example.py
+
+      - name: Upload generated reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-reports
+          path: reports/*.html
