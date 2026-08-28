@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from tabular_autopilot.pipeline import run_pipeline
+from tabular_autopilot.pipeline import load_dataframe, run_pipeline
 from tabular_autopilot.report import render_html
 
 st.set_page_config(page_title="tabular-autopilot", layout="wide")
@@ -60,7 +60,7 @@ with st.sidebar:
         path, default_target = EXAMPLES[choice]
         full_path = Path(__file__).parent / path
         if full_path.exists():
-            df = pd.read_csv(full_path)
+            df = load_dataframe(full_path)
             dataset_name = full_path.stem
         else:
             st.error(f"Example file missing: {path}")
@@ -68,10 +68,7 @@ with st.sidebar:
         uploaded = st.file_uploader("CSV or Excel file", type=["csv", "xlsx", "xls"])
         if uploaded is not None:
             try:
-                if uploaded.name.lower().endswith((".xlsx", ".xls")):
-                    df = pd.read_excel(uploaded)
-                else:
-                    df = pd.read_csv(uploaded)
+                df = load_dataframe(uploaded, filename=uploaded.name)
                 dataset_name = Path(uploaded.name).stem
             except Exception as exc:
                 st.error(f"Could not read file: {exc}")
@@ -204,6 +201,14 @@ with tabs[6]:
             c.metric(name, f"{val:.4f}")
         _img(result.charts.get("feature_importance"))
         _img(result.charts.get("confusion_matrix"))
+        if result.charts.get("decision_tree"):
+            st.markdown(f"**How a tree-based model like `{m.best_model_name}` decides**")
+            st.caption(
+                "This ensemble averages many trees together, which can't be drawn directly. "
+                "This is one shallow tree (depth 3), fit fresh on the same data, showing the "
+                "kind of split logic the ensemble is built from."
+            )
+            _img(result.charts.get("decision_tree"))
 
 with tabs[7]:
     if result.modeling is None or result.modeling.baseline is None:

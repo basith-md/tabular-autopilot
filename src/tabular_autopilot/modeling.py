@@ -45,6 +45,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from statsmodels.stats.diagnostic import het_breuschpagan
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
@@ -53,6 +54,8 @@ MAX_BASELINE_FEATURES = 30
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 N_ESTIMATORS = 200
+TREE_BASED_MODELS = {"Random Forest", "Gradient Boosting"}
+ILLUSTRATIVE_TREE_MAX_DEPTH = 3
 
 
 @dataclass
@@ -87,6 +90,9 @@ class ModelingResult:
     n_test: int = 0
     model_comparison: dict[str, dict[str, float]] = field(default_factory=dict)
     best_model_name: str = ""
+    is_tree_based: bool = False
+    illustrative_tree: object | None = None
+    illustrative_tree_features: list[str] = field(default_factory=list)
 
 
 def _compute_vif(X: pd.DataFrame) -> pd.Series:
@@ -195,7 +201,31 @@ def _classification_candidates() -> dict[str, object]:
     }
 
 
-def run_modeling(df: pd.DataFrame, target: str, feature_cols: list[str], task: str) -> ModelingResult:
+def available_model_names() -> list[str]:
+    """Union of every candidate name across both tasks, in a stable display
+    order -- used to populate a "which models to compare" UI control before
+    the task (and therefore the applicable subset) is known."""
+    seen: dict[str, None] = {}
+    for name in list(_regression_candidates()) + list(_classification_candidates()):
+        seen.setdefault(name, None)
+    return list(seen)
+
+
+def _filter_candidates(candidates: dict[str, object], model_names: list[str] | None) -> dict[str, object]:
+    if not model_names:
+        return candidates
+    filtered = {name: model for name, model in candidates.items() if name in model_names}
+    return filtered or candidates  # never leave the comparison empty
+
+
+def run_modeling(
+    df: pd.DataFrame,
+    target: str,
+    feature_cols: list[str],
+    task: str,
+    test_size: float = TEST_SIZE,
+    model_names: list[str] | None = None,
+) -> ModelingResult:
     X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     y_raw = df[target]
 
@@ -209,14 +239,14 @@ def run_modeling(df: pd.DataFrame, target: str, feature_cols: list[str], task: s
 
     stratify = y if (task == "classification" and y.value_counts().min() >= 2) else None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=stratify
+        X, y, test_size=test_size, random_state=RANDOM_STATE, stratify=stratify
     )
 
     result = ModelingResult(task=task, target=target, n_train=len(X_train), n_test=len(X_test))
 
     if task == "regression":
         result.baseline = _fit_ols_baseline(X_train, y_train)
-        candidates = _regression_candidates()
+        candidates = _filter_candidates(_regression_candidates(), model_names)
         comparison: dict[str, dict[str, float]] = {}
         fitted_models: dict[str, object] = {}
         for name, model in candidates.items():
@@ -238,7 +268,7 @@ def run_modeling(df: pd.DataFrame, target: str, feature_cols: list[str], task: s
             result.baseline = BaselineResult(
                 kind="skipped", note="Interpretable baseline is limited to binary targets; skipped for multiclass."
             )
-        candidates = _classification_candidates()
+        candidates = _filter_candidates(_classification_candidates(), model_names)
         comparison = {}
         fitted_models = {}
         for name, model in candidates.items():
@@ -271,5 +301,20 @@ def run_modeling(df: pd.DataFrame, target: str, feature_cols: list[str], task: s
     )
     imp_series = pd.Series(importance.importances_mean, index=X.columns).sort_values(ascending=False)
     result.feature_importances = {k: float(v) for k, v in imp_series.head(15).items()}
+
+    result.is_tree_based = best_name in TREE_BASED_MODELS
+    if result.is_tree_based:
+        # The winning model is an ensemble of many (deeper) trees averaged
+        # together -- not something you can draw. This shallow single tree,
+        # fit fresh on the same split, is not the production model; it is a
+        # faithful illustration of the split logic that kind of ensemble is
+        # built from.
+        if task == "regression":
+            illustrative = DecisionTreeRegressor(max_depth=ILLUSTRATIVE_TREE_MAX_DEPTH, random_state=RANDOM_STATE)
+        else:
+            illustrative = DecisionTreeClassifier(max_depth=ILLUSTRATIVE_TREE_MAX_DEPTH, random_state=RANDOM_STATE)
+        illustrative.fit(X_train, y_train)
+        result.illustrative_tree = illustrative
+        result.illustrative_tree_features = list(X.columns)
 
     return result

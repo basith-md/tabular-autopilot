@@ -25,7 +25,7 @@ For every numeric column: mean/std/median, skewness, and IQR-based outlier count
 
 ## 3. Cleaning (`cleaning.py`)
 
-- **Numeric**: median imputation for missing values. Columns flagged as skewed by the profiler (`|skew| ≥ 1`) and non-negative get a `log1p` companion column, so the report can show before/after distributions without destroying the original scale.
+- **Numeric**: median imputation for missing values by default (mean is a configurable alternative — median is more robust to outliers, which is why it's the default rather than the more commonly-taught mean). Columns flagged as skewed by the profiler (`|skew| ≥ 1`) and non-negative get a `log1p` companion column, so the report can show before/after distributions without destroying the original scale.
 - **Categorical**: mode imputation; falls back to an explicit `"Unknown"` category if a column is entirely missing.
 - **Target**: rows with a missing target are dropped (nothing to learn from or evaluate against).
 
@@ -62,6 +62,14 @@ Multiclass targets skip the interpretable baseline (Logit doesn't generalize cle
 ### 5c. Feature importance
 
 Computed via **permutation importance** on the held-out test set against whichever model won the comparison — this works identically regardless of model type (unlike relying on a model-specific `.feature_importances_` attribute, which HistGradientBoosting doesn't even expose).
+
+### 5d. Explaining a tree-ensemble winner
+
+Random Forest and Gradient Boosting are ensembles of tens to hundreds of trees averaged together — there is no single tree to draw that represents the actual production model. When one of them wins the comparison, a separate shallow decision tree (max depth 3) of the same task is fit fresh on the same training split, purely to illustrate the *kind* of split logic that ensemble is built from. It is explicitly labeled as an illustration, not the model itself, in both the report and the browser demo.
+
+### 5e. User-configurable settings
+
+Three knobs are exposed all the way from `run_pipeline()` down to the browser demo's settings panel, each defaulting to the original fixed behavior so nothing changes unless asked: **test split size** (`test_size`, default 0.2), **which candidate models to include** (`model_names`, default: all of them for the detected task), and **numeric imputation strategy** (`numeric_impute_strategy`, `"median"` or `"mean"`, default median).
 
 ## 6. Time-series diagnostics (`timeseries.py`)
 

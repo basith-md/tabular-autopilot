@@ -14,10 +14,10 @@ Most portfolio data-science projects are a single notebook analyzing a single da
 
 1. **Schema inference** — infers a role for every column using inspectable rules (not a black box): numeric, categorical (low/high cardinality), datetime, geospatial lat/lon pair, free text, identifier, or constant.
 2. **Profiling** — missingness, skewness, IQR-based outlier counts, top category values, duplicate rows.
-3. **Cleaning** — median imputation for numeric columns, mode imputation for categorical, automatic `log1p` transform for right-skewed columns, dropped rows with a missing target.
+3. **Cleaning** — median or mean imputation (configurable) for numeric columns, mode imputation for categorical, automatic `log1p` transform for right-skewed columns, dropped rows with a missing target.
 4. **Feature engineering** — one-hot encoding for low-cardinality categoricals, frequency encoding for high-cardinality ones, full calendar + cyclical (sin/cos) expansion for datetime columns, KMeans spatial clustering + centroid distance for lat/lon pairs.
-5. **Modeling** — trains and compares **5 regression models** (Linear, Ridge, Lasso, Random Forest, Gradient Boosting) or **3 classification models** (Logistic Regression, Random Forest, Gradient Boosting) on an identical split and automatically picks the best by held-out score.
-6. **Statistical diagnostics** — an interpretable OLS/Logit baseline alongside the model comparison: VIF-based multicollinearity pruning, coefficient significance, a Breusch-Pagan heteroscedasticity test, residual and Q-Q plots.
+5. **Modeling** — trains and compares up to **5 regression models** (Linear, Ridge, Lasso, Random Forest, Gradient Boosting) or **3 classification models** (Logistic Regression, Random Forest, Gradient Boosting) on an identical split and automatically picks the best by held-out score. Test split size and which candidate models to include are both configurable.
+6. **Statistical diagnostics** — an interpretable OLS/Logit baseline alongside the model comparison: VIF-based multicollinearity pruning, coefficient significance, a Breusch-Pagan heteroscedasticity test, residual and Q-Q plots. When a **tree ensemble** (Random Forest / Gradient Boosting) wins the comparison, a separate shallow decision tree is fit and drawn purely to illustrate the kind of split logic that ensemble is built from — the production model itself can't be visualized directly.
 7. **Time-series diagnostics** *(auto-triggered)* — whenever a datetime column and numeric target are both present: trend strength, an Augmented Dickey-Fuller stationarity test, ACF/PACF, and a short-horizon forecast.
 8. **Reporting** — a single self-contained HTML report (`tabular_autopilot.report`), or the same analysis live in a Streamlit app with a tab per section.
 
@@ -38,6 +38,8 @@ The Streamlit app is deploy-ready as-is on Streamlit Community Cloud or Hugging 
 ## The browser demo (`docs/`)
 
 [basith-md.github.io/tabular-autopilot](https://basith-md.github.io/tabular-autopilot/) is a static page (hosted for free on GitHub Pages, no server) that runs the *exact same* `tabular_autopilot` package via [Pyodide](https://pyodide.org) — CPython compiled to WebAssembly. On page load it boots the engine in the background (numpy, pandas, scikit-learn, statsmodels, matplotlib) and installs `tabular_autopilot` itself from a wheel built straight from this source tree, then a drag-and-drop file triggers the identical `run_pipeline()` / `render_html()` the CLI uses — rendered inline in an iframe. Nothing is ever sent to a server; the only network activity is downloading the (cached-after-first-load) Python runtime and package wheels.
+
+The page is a 4-section stepper (Overview / How it works / Live demo / Why it's real) navigated by Next/Prev buttons or the dot indicator rather than one long scroll. The demo section exposes an "Adjust settings" panel — test split size, in-browser row cap, numeric imputation strategy, and which candidate models to include — and lets you tweak settings and re-run against the same file, or start over with a different one.
 
 To rebuild the wheel after a code change:
 
@@ -60,9 +62,10 @@ Each example folder has its own README with the full breakdown; run any of them 
 
 ```
 src/tabular_autopilot/   the engine: schema, profiling, cleaning, feature_engineering,
-                          modeling, timeseries, eda_visuals, report, pipeline, cli
+                          modeling, timeseries, eda_visuals, report, pipeline, cli,
+                          templates/report_template.html (packaged as data)
 app.py                   Streamlit UI on top of the same pipeline — no separate logic
-templates/                Jinja2 HTML report template
+docs/                     the browser demo: static site + wheel, served by GitHub Pages
 examples/                 3 worked examples spanning regression, classification, time series
 tests/                    unit + end-to-end tests, synthetic edge cases for every column role
 docs/methodology.md       step-by-step explanation of every automated decision, plus a
@@ -79,7 +82,7 @@ docs/methodology.md       step-by-step explanation of every automated decision, 
 pytest -q
 ```
 
-26 tests cover schema inference for every column role (numeric, categorical, datetime, geospatial, text, identifier, constant), cleaning, feature engineering, both baseline+comparison modeling paths, time-series diagnostics, and 6 full end-to-end pipeline runs including edge cases (all-numeric data, EDA-only with no target, a geospatial dataset, a datetime+time-series dataset).
+32 tests cover schema inference for every column role (numeric, categorical, datetime, geospatial, text, identifier, constant), cleaning (including multi-encoding CSV loading), feature engineering, both baseline+comparison modeling paths (including the tree-ensemble illustrative-tree path), time-series diagnostics, and full end-to-end pipeline runs including edge cases (all-numeric data, EDA-only with no target, a geospatial dataset, a datetime+time-series dataset).
 
 ## Acknowledgment
 

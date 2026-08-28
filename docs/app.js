@@ -8,7 +8,6 @@
 
 const WHEEL_URL = new URL("dist/tabular_autopilot-0.1.0-py3-none-any.whl", document.baseURI).href;
 const SAMPLE_DIR = "samples/";
-const MAX_ROWS_IN_BROWSER = 5000;
 
 const statusEl = document.getElementById("engine-status");
 const statusLabel = statusEl.querySelector(".label");
@@ -19,6 +18,7 @@ const stepsEl = document.getElementById("steps");
 let pyodide = null;
 let engineReady = false;
 let pendingAction = null; // queued { kind: 'file'|'sample', ... } while engine still booting
+let lastLoaded = null; // { path, displayName, byteSize } for "adjust settings" re-runs
 
 function setStatus(kind, text) {
   statusEl.className = "engine-status" + (kind ? " " + kind : "");
@@ -90,17 +90,11 @@ async function boot() {
 const PY_GLUE = `
 import json
 import traceback
-import pandas as pd
-
-def _read_any(path):
-    lower = path.lower()
-    if lower.endswith((".xlsx", ".xls")):
-        return pd.read_excel(path)
-    return pd.read_csv(path)
 
 def js_peek_columns(path):
     try:
-        df = _read_any(path)
+        from tabular_autopilot.pipeline import load_dataframe
+        df = load_dataframe(path)
         return json.dumps({
             "ok": True,
             "columns": list(map(str, df.columns)),
@@ -110,19 +104,28 @@ def js_peek_columns(path):
     except Exception as e:
         return json.dumps({"ok": False, "error": str(e)})
 
-def js_analyze(path, target, dataset_name, max_rows):
+def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy, model_names_json):
     try:
-        from tabular_autopilot.pipeline import run_pipeline
+        from tabular_autopilot.pipeline import load_dataframe, run_pipeline
         from tabular_autopilot.report import render_html
 
-        df = _read_any(path)
+        model_names = json.loads(model_names_json) or None
+
+        df = load_dataframe(path)
         sampled = False
         if max_rows and len(df) > max_rows:
             df = df.sample(int(max_rows), random_state=42).reset_index(drop=True)
             sampled = True
 
         target = target if target else None
-        result = run_pipeline(df, target=target, dataset_name=dataset_name)
+        result = run_pipeline(
+            df,
+            target=target,
+            dataset_name=dataset_name,
+            numeric_impute_strategy=impute_strategy,
+            test_size=float(test_size),
+            model_names=model_names,
+        )
         html = render_html(result)
         return json.dumps({
             "ok": True,
@@ -154,6 +157,37 @@ function fmtBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ---------- Settings panel ---------- */
+
+const settingsToggle = document.getElementById("settings-toggle");
+const settingsPanel = document.getElementById("settings-panel");
+settingsToggle.addEventListener("click", () => {
+  settingsToggle.classList.toggle("open");
+  settingsPanel.classList.toggle("open");
+});
+
+const testSizeInput = document.getElementById("test-size");
+const testSizeValue = document.getElementById("test-size-value");
+testSizeInput.addEventListener("input", () => {
+  testSizeValue.textContent = `${testSizeInput.value}%`;
+});
+
+const maxRowsInput = document.getElementById("max-rows");
+const maxRowsValue = document.getElementById("max-rows-value");
+maxRowsInput.addEventListener("input", () => {
+  maxRowsValue.textContent = Number(maxRowsInput.value).toLocaleString();
+});
+
+function currentSettings() {
+  const modelCheckboxes = [...document.querySelectorAll("#model-checkboxes input:checked")];
+  return {
+    testSize: Number(testSizeInput.value) / 100,
+    maxRows: Number(maxRowsInput.value),
+    imputeStrategy: document.querySelector('input[name="impute"]:checked').value,
+    modelNames: modelCheckboxes.map((c) => c.value),
+  };
 }
 
 /* ---------- File handling ---------- */
@@ -236,6 +270,8 @@ async function presentColumnPicker(path, displayName, byteSize, presetTarget) {
     return;
   }
 
+  lastLoaded = { path, displayName, byteSize };
+
   const options = ['<option value="">(none — profiling &amp; EDA only)</option>']
     .concat(parsed.columns.map((c) => {
       const selected = c === presetTarget ? "selected" : "";
@@ -255,8 +291,8 @@ async function presentColumnPicker(path, displayName, byteSize, presetTarget) {
         <select id="target-select">${options}</select>
         <button class="btn btn-primary" id="analyze-btn">Analyze ↦</button>
       </div>
-      ${parsed.n_rows > MAX_ROWS_IN_BROWSER
-        ? `<div class="notice warn">This dataset has ${parsed.n_rows.toLocaleString()} rows — for this browser demo it'll be randomly sampled down to ${MAX_ROWS_IN_BROWSER.toLocaleString()} to keep things responsive. The CLI and Streamlit app analyze the full dataset.</div>`
+      ${parsed.n_rows > maxRowsInput.value
+        ? `<div class="notice warn">This dataset has ${parsed.n_rows.toLocaleString()} rows — for this browser demo it'll be randomly sampled down per the row cap in Advanced settings (currently ${Number(maxRowsInput.value).toLocaleString()}) to keep things responsive. The CLI and Streamlit app analyze the full dataset.</div>`
         : ""}
     </div>`;
 
@@ -269,6 +305,8 @@ async function presentColumnPicker(path, displayName, byteSize, presetTarget) {
 /* ---------- Analysis + results ---------- */
 
 async function runAnalysis(path, target, displayName) {
+  const settings = currentSettings();
+
   stepsEl.insertAdjacentHTML("beforeend", `
     <div class="step" id="analyze-progress">
       <div class="analyzing">
@@ -282,7 +320,15 @@ async function runAnalysis(path, target, displayName) {
 
   try {
     const analyzeFn = pyodide.globals.get("js_analyze");
-    const raw = analyzeFn(path, target || "", displayName.replace(/\.[^.]+$/, ""), MAX_ROWS_IN_BROWSER);
+    const raw = analyzeFn(
+      path,
+      target || "",
+      displayName.replace(/\.[^.]+$/, ""),
+      settings.maxRows,
+      settings.testSize,
+      settings.imputeStrategy,
+      JSON.stringify(settings.modelNames)
+    );
     const parsed = JSON.parse(raw);
 
     const progressEl = document.getElementById("analyze-progress");
@@ -295,7 +341,7 @@ async function runAnalysis(path, target, displayName) {
     }
 
     const sampledNote = parsed.sampled
-      ? `<div class="notice info">Analyzed on a random 5,000-row sample of this dataset (browser-demo limit).</div>`
+      ? `<div class="notice info">Analyzed on a random ${settings.maxRows.toLocaleString()}-row sample of this dataset (browser-demo limit — adjustable in Advanced settings).</div>`
       : "";
 
     stepsEl.insertAdjacentHTML("beforeend", `
@@ -305,8 +351,9 @@ async function runAnalysis(path, target, displayName) {
         <div class="result-frame-wrap">
           <iframe id="result-iframe" sandbox="allow-same-origin"></iframe>
         </div>
-        <div style="margin-top:1rem;">
-          <button class="btn btn-ghost" id="reset-btn">Analyze another file</button>
+        <div class="result-actions">
+          <button class="btn btn-ghost" id="adjust-btn">⚙ Adjust settings &amp; re-run</button>
+          <button class="btn-text" id="reset-btn">Start over with a different file</button>
         </div>
       </div>`);
 
@@ -320,8 +367,20 @@ async function runAnalysis(path, target, displayName) {
       }
     });
     iframe.srcdoc = parsed.html;
+
+    document.getElementById("adjust-btn").addEventListener("click", () => {
+      if (lastLoaded) {
+        presentColumnPicker(lastLoaded.path, lastLoaded.displayName, lastLoaded.byteSize, target || null);
+        if (!settingsPanel.classList.contains("open")) {
+          settingsToggle.classList.add("open");
+          settingsPanel.classList.add("open");
+        }
+        stepsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
     document.getElementById("reset-btn").addEventListener("click", () => {
       stepsEl.innerHTML = "";
+      lastLoaded = null;
     });
     iframe.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
@@ -331,7 +390,7 @@ async function runAnalysis(path, target, displayName) {
   }
 }
 
-/* ---------- Wiring ---------- */
+/* ---------- File input / drag-drop wiring ---------- */
 
 dropzone.addEventListener("click", () => fileInput.click());
 dropzone.addEventListener("keydown", (e) => {
@@ -359,10 +418,48 @@ dropzone.addEventListener("drop", (e) => {
   if (file) handleIncomingFile(file);
 });
 
-document.querySelectorAll(".chip").forEach((chip) => {
-  chip.addEventListener("click", () => {
-    handleSampleClick(chip.dataset.sample, chip.dataset.target);
+document.querySelectorAll(".example-card").forEach((card) => {
+  card.addEventListener("click", () => {
+    handleSampleClick(card.dataset.sample, card.dataset.target);
   });
 });
 
+/* ---------- Slide / stepper navigation ---------- */
+
+const SLIDE_LABELS = ["Overview", "How it works", "Live demo", "Why it's real"];
+const slides = [...document.querySelectorAll(".slide")];
+const dots = [...document.querySelectorAll(".slide-dot")];
+const prevBtn = document.getElementById("prev-slide");
+const nextBtn = document.getElementById("next-slide");
+const slideLabel = document.getElementById("slide-label");
+let currentSlide = 0;
+
+function goToSlide(index) {
+  index = Math.max(0, Math.min(slides.length - 1, index));
+  currentSlide = index;
+  slides.forEach((s) => s.classList.toggle("active", Number(s.dataset.slide) === index));
+  dots.forEach((d) => d.classList.toggle("current", Number(d.dataset.slide) === index));
+  document.querySelectorAll(".nav-links .slide-link").forEach((btn) => {
+    btn.classList.toggle("current", Number(btn.dataset.slide) === index);
+  });
+  slideLabel.textContent = `${index + 1} / ${slides.length} — ${SLIDE_LABELS[index]}`;
+  prevBtn.disabled = index === 0;
+  nextBtn.disabled = index === slides.length - 1;
+  window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+}
+
+document.querySelectorAll(".slide-link, .slide-dot").forEach((el) => {
+  el.addEventListener("click", () => goToSlide(Number(el.dataset.slide)));
+});
+prevBtn.addEventListener("click", () => goToSlide(currentSlide - 1));
+nextBtn.addEventListener("click", () => goToSlide(currentSlide + 1));
+
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "ArrowRight") goToSlide(currentSlide + 1);
+  if (e.key === "ArrowLeft") goToSlide(currentSlide - 1);
+});
+
+goToSlide(0);
 boot();

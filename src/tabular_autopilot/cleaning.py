@@ -30,9 +30,18 @@ class CleaningReport:
     log_transformed: list[str] = field(default_factory=list)
 
 
+NUMERIC_IMPUTE_STRATEGIES = ("median", "mean")
+
+
 def clean_dataframe(
-    df: pd.DataFrame, schema: SchemaResult, profile: ProfileReport
+    df: pd.DataFrame,
+    schema: SchemaResult,
+    profile: ProfileReport,
+    numeric_impute_strategy: str = "median",
 ) -> tuple[pd.DataFrame, CleaningReport]:
+    if numeric_impute_strategy not in NUMERIC_IMPUTE_STRATEGIES:
+        raise ValueError(f"numeric_impute_strategy must be one of {NUMERIC_IMPUTE_STRATEGIES}")
+
     out = df.copy()
     report = CleaningReport()
 
@@ -41,7 +50,10 @@ def clean_dataframe(
             continue
         out[col] = pd.to_numeric(out[col], errors="coerce")
         if out[col].isna().any():
-            fill_value = float(out[col].median()) if out[col].notna().any() else 0.0
+            if out[col].notna().any():
+                fill_value = float(out[col].mean()) if numeric_impute_strategy == "mean" else float(out[col].median())
+            else:
+                fill_value = 0.0
             out[col] = out[col].fillna(fill_value)
             report.imputed_numeric[col] = fill_value
 

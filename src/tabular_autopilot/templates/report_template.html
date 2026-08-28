@@ -4,30 +4,34 @@
 <meta charset="UTF-8">
 <title>tabular-autopilot report — {{ dataset_name }}</title>
 <style>
-  :root { --bg:#0f1620; --panel:#161f2c; --text:#e7edf3; --muted:#9db0c3; --accent:#5aa9e6; --border:#25324420; }
+  :root {
+    --bg: #f9f9f7; --panel: #ffffff; --panel-alt: #f4f3ef; --text: #0b0b0b;
+    --muted: #52514e; --accent: #2a78d6; --border: #e1e0d9; --good: #0ca30c;
+    --warn: #a34b1c; --danger: #a12626;
+  }
   * { box-sizing: border-box; }
-  body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding: 0 0 4rem; }
-  header { background: linear-gradient(135deg,#12314f,#0f1620); padding: 2.5rem 3rem; border-bottom: 1px solid #223247; }
-  header h1 { margin:0 0 .3rem; font-size: 1.8rem; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter", -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding: 0 0 4rem; }
+  header { background: var(--panel-alt); padding: 2.5rem 3rem; border-bottom: 1px solid var(--border); }
+  header h1 { margin:0 0 .3rem; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em; }
   header p { margin:0; color: var(--muted); }
   main { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
   section { margin-top: 2.5rem; }
-  h2 { border-bottom: 2px solid #223247; padding-bottom: .4rem; font-size: 1.3rem; }
-  h3 { color: var(--accent); font-size: 1.05rem; margin-bottom: .4rem; }
+  h2 { border-bottom: 2px solid var(--border); padding-bottom: .4rem; font-size: 1.3rem; font-weight: 800; }
+  h3 { color: var(--text); font-size: 1.05rem; margin-bottom: .4rem; font-weight: 700; }
   table { border-collapse: collapse; width: 100%; margin: .8rem 0 1.4rem; font-size: .85rem; }
-  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #223247; }
-  th { color: var(--muted); font-weight: 600; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 700; }
   .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-  .card { background: var(--panel); border: 1px solid #223247; border-radius: 10px; padding: 1.2rem 1.4rem; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem 1.4rem; }
   .metric-row { display:flex; gap: 1rem; flex-wrap: wrap; margin: .8rem 0; }
-  .metric { background: var(--panel); border: 1px solid #223247; border-radius: 10px; padding: .8rem 1.2rem; min-width: 140px; }
+  .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: .8rem 1.2rem; min-width: 140px; }
   .metric .label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
-  .metric .value { font-size: 1.4rem; font-weight: 600; color: var(--accent); }
-  img { max-width: 100%; border-radius: 8px; }
-  pre { background: #0b1119; border: 1px solid #223247; border-radius: 8px; padding: 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.4; }
-  .badge { display:inline-block; padding: .15rem .5rem; border-radius: 6px; font-size: .72rem; background:#223247; color: var(--muted); margin-left: .4rem; }
-  .warn { color: #e6b85a; }
-  .ok { color: #6fce8f; }
+  .metric .value { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+  img { max-width: 100%; border-radius: 4px; }
+  pre { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.4; }
+  .badge { display:inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .72rem; background:var(--panel-alt); border: 1px solid var(--border); color: var(--muted); margin-left: .4rem; }
+  .warn { color: var(--warn); }
+  .ok { color: var(--good); }
   .muted { color: var(--muted); }
 </style>
 </head>
@@ -133,6 +137,12 @@
     {% if charts.feature_importance %}<div class="card"><h3>Feature importance</h3><img src="{{ charts.feature_importance }}"></div>{% endif %}
     {% if charts.confusion_matrix %}<div class="card"><h3>Confusion matrix</h3><img src="{{ charts.confusion_matrix }}"></div>{% endif %}
   </div>
+
+  {% if charts.decision_tree %}
+  <h3 style="margin-top:1.5rem;">How a tree-based model like this decides</h3>
+  <p class="muted"><code>{{ modeling.best_model_name }}</code> is an ensemble of many trees averaged together, which can't be drawn directly. This is one shallow tree (depth 3), fit fresh on the same data, showing the kind of split logic that ensemble is built from.</p>
+  <div class="card"><img src="{{ charts.decision_tree }}"></div>
+  {% endif %}
 
   {% if modeling.baseline and modeling.baseline.kind in ("ols", "logit") %}
   <h3 style="margin-top:2rem;">Interpretable baseline ({{ modeling.baseline.kind|upper }}) &amp; diagnostics</h3>

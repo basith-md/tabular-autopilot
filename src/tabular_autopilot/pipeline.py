@@ -33,13 +33,38 @@ class AnalysisResult:
     timeseries: TimeSeriesResult | None = None
 
 
-def load_dataframe(path: str | Path) -> pd.DataFrame:
-    path = Path(path)
-    if path.suffix.lower() in (".parquet",):
-        return pd.read_parquet(path)
-    if path.suffix.lower() in (".xls", ".xlsx"):
-        return pd.read_excel(path)
-    return pd.read_csv(path)
+# Tried in order against CSVs of unknown provenance: real UTF-8 first (most
+# common and the only one that round-trips non-Latin text correctly), then
+# utf-8-sig (Excel's "CSV UTF-8" export adds a BOM), then cp1252 (Excel's
+# *default* Windows export encoding -- "smart quotes" and en-dashes live in
+# the 0x80-0x9F range that plain UTF-8 rejects outright), then latin-1 as a
+# final catch-all that maps every byte to a codepoint and therefore never
+# raises -- guaranteeing this loop terminates.
+_CSV_ENCODING_FALLBACKS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
+
+
+def _read_csv_robust(path_or_buffer) -> pd.DataFrame:
+    for encoding in _CSV_ENCODING_FALLBACKS:
+        try:
+            return pd.read_csv(path_or_buffer, encoding=encoding)
+        except UnicodeDecodeError:
+            if hasattr(path_or_buffer, "seek"):
+                path_or_buffer.seek(0)
+            continue
+    return pd.read_csv(path_or_buffer)  # pragma: no cover -- latin-1 above always succeeds
+
+
+def load_dataframe(path_or_buffer, filename: str | None = None) -> pd.DataFrame:
+    """Load a CSV/Excel/Parquet file from a path, or a file-like object plus
+    its original ``filename`` (needed to tell the formats apart when the
+    object itself -- e.g. a Streamlit/browser upload -- has no extension)."""
+    name = filename if filename is not None else str(path_or_buffer)
+    suffix = Path(name).suffix.lower()
+    if suffix == ".parquet":
+        return pd.read_parquet(path_or_buffer)
+    if suffix in (".xls", ".xlsx"):
+        return pd.read_excel(path_or_buffer)
+    return _read_csv_robust(path_or_buffer)
 
 
 def _build_charts(
@@ -86,9 +111,18 @@ def _build_charts(
             )
         else:
             charts["confusion_matrix"] = None
+        if modeling.is_tree_based and modeling.illustrative_tree is not None:
+            charts["decision_tree"] = viz.plot_decision_tree(
+                modeling.illustrative_tree,
+                modeling.illustrative_tree_features,
+                modeling.class_labels if modeling.task == "classification" else None,
+            )
+        else:
+            charts["decision_tree"] = None
     else:
         charts["feature_importance"] = None
         charts["confusion_matrix"] = None
+        charts["decision_tree"] = None
 
     return charts
 
@@ -105,17 +139,27 @@ def _build_timeseries_charts(ts: TimeSeriesResult | None) -> dict[str, str | Non
 
 
 def run_pipeline(
-    df: pd.DataFrame, target: str | None = None, dataset_name: str = "dataset"
+    df: pd.DataFrame,
+    target: str | None = None,
+    dataset_name: str = "dataset",
+    numeric_impute_strategy: str = "median",
+    test_size: float = 0.2,
+    model_names: list[str] | None = None,
 ) -> AnalysisResult:
     schema = infer_schema(df, target=target)
     profile = profile_dataframe(df, schema)
-    cleaned_df, cleaning_report = clean_dataframe(df, schema, profile)
+    cleaned_df, cleaning_report = clean_dataframe(df, schema, profile, numeric_impute_strategy)
     featured_df, fe_report = engineer_features(cleaned_df, schema)
 
     modeling_result = None
     if schema.target and schema.task:
         modeling_result = run_modeling(
-            featured_df, schema.target, fe_report.final_feature_columns, schema.task
+            featured_df,
+            schema.target,
+            fe_report.final_feature_columns,
+            schema.task,
+            test_size=test_size,
+            model_names=model_names,
         )
 
     charts = _build_charts(cleaned_df, schema, profile, modeling_result)
