@@ -19,8 +19,9 @@
     <nav class="nav-links">
       <button data-slide="0" class="slide-link">Overview</button>
       <button data-slide="1" class="slide-link">How it works</button>
-      <button data-slide="2" class="slide-link">Live demo</button>
-      <button data-slide="3" class="slide-link">Why it's real</button>
+      <button data-slide="2" class="slide-link">Examples</button>
+      <button data-slide="3" class="slide-link">Live demo</button>
+      <button data-slide="4" class="slide-link">Why it's real</button>
     </nav>
     <div id="engine-status" class="engine-status">
       <div class="spinner"></div>
@@ -42,7 +43,7 @@
         WebAssembly and running on <em>your</em> CPU. Nothing you drop here ever leaves this tab.
       </p>
       <div class="hero-ctas">
-        <button class="btn btn-primary slide-link" data-slide="2">Try it now →</button>
+        <button class="btn btn-primary slide-link" data-slide="3">Try it now →</button>
         <a class="btn btn-ghost" href="https://github.com/basith-md/tabular-autopilot">View source</a>
       </div>
     </div>
@@ -97,13 +98,64 @@
     </div>
   </section>
 
-  <!-- Slide 2: Live demo -->
+  <!-- Slide 2: Examples -->
   <section class="slide" data-slide="2">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="kicker">Examples</span>
+        <h2>Three worked datasets, three data shapes</h2>
+        <p>Each one is a full pre-vendored dataset the pipeline has already been run against — click a card to load it straight into the live demo, or read the full write-up on GitHub. Together they exercise regression, classification, and time series in one engine.</p>
+      </div>
+
+      <div class="example-grid">
+        <div class="example-card" data-sample="housing.csv" data-target="median_house_value">
+          <span class="emoji">🏠</span>
+          <h4>California Housing</h4>
+          <p>20,640 census blocks with lat/lon. Regression, geospatial clustering, and skew correction on income and room counts.</p>
+          <div class="stats"><span class="tag">20,640 rows</span><span class="tag">10 cols</span><span class="tag">Regression</span></div>
+          <p class="example-result">Best model: Gradient Boosting — R² 0.825, MAE $32,128</p>
+          <div class="example-actions">
+            <span class="run-hint">Click card to run it →</span>
+            <a class="example-link" href="https://github.com/basith-md/tabular-autopilot/tree/main/examples/california_housing" target="_blank" rel="noopener" onclick="event.stopPropagation()">Full write-up ↗</a>
+          </div>
+        </div>
+        <div class="example-card" data-sample="titanic.csv" data-target="Survived">
+          <span class="emoji">🚢</span>
+          <h4>Titanic</h4>
+          <p>891 passengers, genuinely messy: missing ages, a mostly-empty cabin column, high-cardinality ticket codes. Binary classification.</p>
+          <div class="stats"><span class="tag">891 rows</span><span class="tag">12 cols</span><span class="tag">Classification</span></div>
+          <p class="example-result">Best model: Logistic Regression — Accuracy 0.805, ROC-AUC 0.838</p>
+          <div class="example-actions">
+            <span class="run-hint">Click card to run it →</span>
+            <a class="example-link" href="https://github.com/basith-md/tabular-autopilot/tree/main/examples/titanic_classification" target="_blank" rel="noopener" onclick="event.stopPropagation()">Full write-up ↗</a>
+          </div>
+        </div>
+        <div class="example-card" data-sample="retail_sales.csv" data-target="units_sold">
+          <span class="emoji">📈</span>
+          <h4>Retail Sales</h4>
+          <p>2 years of daily sales with trend and weekly seasonality. Datetime feature expansion plus automatic stationarity/forecast diagnostics.</p>
+          <div class="stats"><span class="tag">730 rows</span><span class="tag">6 cols</span><span class="tag">Regression + time series</span></div>
+          <p class="example-result">Best model: Ridge (CV) — R² 0.884, trend-R² 0.34</p>
+          <div class="example-actions">
+            <span class="run-hint">Click card to run it →</span>
+            <a class="example-link" href="https://github.com/basith-md/tabular-autopilot/tree/main/examples/retail_sales_datetime" target="_blank" rel="noopener" onclick="event.stopPropagation()">Full write-up ↗</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-ctas" style="margin-top: 2rem;">
+        <button class="btn btn-ghost slide-link" data-slide="3">Or bring your own data →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Slide 3: Live demo -->
+  <section class="slide" data-slide="3">
     <div class="wrap">
       <div class="section-head">
         <span class="kicker">Live demo</span>
         <h2>Try it on your own data</h2>
-        <p>Pick a sample dataset below or drop your own file — the Python engine boots in the background as soon as this page loads, tracked by the badge top-right.</p>
+        <p>Drop a file below — the Python engine boots in the background as soon as this page loads, tracked by the badge top-right. Looking for a ready-made dataset instead? See <button class="btn-text slide-link" data-slide="2" style="display:inline;padding:0;">Examples</button>.</p>
       </div>
 
       <div class="demo-shell">
@@ -117,27 +169,6 @@
           <div class="privacy-note">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
             Your file is never uploaded anywhere
-          </div>
-        </div>
-
-        <div class="example-grid">
-          <div class="example-card" data-sample="housing.csv" data-target="median_house_value">
-            <span class="emoji">🏠</span>
-            <h4>California Housing</h4>
-            <p>20,640 census blocks with lat/lon. Regression, geospatial clustering, and skew correction on income and room counts.</p>
-            <div class="stats"><span class="tag">20,640 rows</span><span class="tag">10 cols</span><span class="tag">Regression</span></div>
-          </div>
-          <div class="example-card" data-sample="titanic.csv" data-target="Survived">
-            <span class="emoji">🚢</span>
-            <h4>Titanic</h4>
-            <p>891 passengers, genuinely messy: missing ages, a mostly-empty cabin column, high-cardinality ticket codes. Binary classification.</p>
-            <div class="stats"><span class="tag">891 rows</span><span class="tag">12 cols</span><span class="tag">Classification</span></div>
-          </div>
-          <div class="example-card" data-sample="retail_sales.csv" data-target="units_sold">
-            <span class="emoji">📈</span>
-            <h4>Retail Sales</h4>
-            <p>2 years of daily sales with trend and weekly seasonality. Datetime feature expansion plus automatic stationarity/forecast diagnostics.</p>
-            <div class="stats"><span class="tag">730 rows</span><span class="tag">6 cols</span><span class="tag">Regression + time series</span></div>
           </div>
         </div>
 
@@ -192,8 +223,8 @@
     </div>
   </section>
 
-  <!-- Slide 3: Why it's real -->
-  <section class="slide" data-slide="3">
+  <!-- Slide 4: Why it's real -->
+  <section class="slide" data-slide="4">
     <div class="wrap">
       <div class="section-head">
         <span class="kicker">Under the hood</span>
@@ -226,8 +257,9 @@
 <nav class="slide-nav" aria-label="Section navigation">
   <button class="slide-dot current" data-slide="0" aria-label="Overview"></button>
   <button class="slide-dot" data-slide="1" aria-label="How it works"></button>
-  <button class="slide-dot" data-slide="2" aria-label="Live demo"></button>
-  <button class="slide-dot" data-slide="3" aria-label="Why it's real"></button>
+  <button class="slide-dot" data-slide="2" aria-label="Examples"></button>
+  <button class="slide-dot" data-slide="3" aria-label="Live demo"></button>
+  <button class="slide-dot" data-slide="4" aria-label="Why it's real"></button>
 </nav>
 
 <div class="slide-controls">

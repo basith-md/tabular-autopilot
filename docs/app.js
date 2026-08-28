@@ -445,12 +445,14 @@ dropzone.addEventListener("drop", (e) => {
 document.querySelectorAll(".example-card").forEach((card) => {
   card.addEventListener("click", () => {
     handleSampleClick(card.dataset.sample, card.dataset.target);
+    const liveDemoSlide = document.getElementById("dropzone")?.closest(".slide");
+    if (liveDemoSlide) goToSlide(Number(liveDemoSlide.dataset.slide));
   });
 });
 
 /* ---------- Slide / stepper navigation ---------- */
 
-const SLIDE_LABELS = ["Overview", "How it works", "Live demo", "Why it's real"];
+const SLIDE_LABELS = ["Overview", "How it works", "Examples", "Live demo", "Why it's real"];
 const slides = [...document.querySelectorAll(".slide")];
 const dots = [...document.querySelectorAll(".slide-dot")];
 const prevBtn = document.getElementById("prev-slide");
