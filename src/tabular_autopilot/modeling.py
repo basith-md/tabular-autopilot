@@ -15,6 +15,18 @@ gradient boosting; logistic regression, random forest, gradient boosting)
 mirrors the breadth of a full predictive-analytics course sequence —
 OLS -> regularization -> trees -> ensembles — rather than committing to a
 single algorithm.
+
+Three further, independently-togglable pieces of rigor:
+- **Feature selection** (variance threshold, then SelectKBest) so a wide
+  feature matrix (e.g. after TF-IDF text vectorization) doesn't drown the
+  model comparison in noise columns.
+- **Class-imbalance handling** for classification: detected automatically,
+  and — when enabled — addressed via class_weight="balanced" for models
+  that support it as a constructor argument, or sample_weight at fit time
+  for the one that doesn't (HistGradientBoostingClassifier).
+- **Cross-validation** as an alternative to a single train/test split for
+  the headline comparison metrics, opt-in since it multiplies runtime by
+  the fold count.
 """
 
 from __future__ import annotations
@@ -31,10 +43,12 @@ from sklearn.ensemble import (
     RandomForestClassifier,
     RandomForestRegressor,
 )
+from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LassoCV, LinearRegression, LogisticRegression, RidgeCV
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     confusion_matrix,
     f1_score,
     mean_absolute_error,
@@ -42,10 +56,11 @@ from sklearn.metrics import (
     r2_score,
     roc_auc_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.utils.class_weight import compute_sample_weight
 from statsmodels.stats.diagnostic import het_breuschpagan
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
@@ -56,6 +71,9 @@ RANDOM_STATE = 42
 N_ESTIMATORS = 200
 TREE_BASED_MODELS = {"Random Forest", "Gradient Boosting"}
 ILLUSTRATIVE_TREE_MAX_DEPTH = 3
+IMBALANCE_RATIO_THRESHOLD = 1.5
+MAX_SELECTED_FEATURES = 50
+NEAR_ZERO_VARIANCE_THRESHOLD = 1e-8
 
 
 @dataclass
@@ -93,6 +111,13 @@ class ModelingResult:
     is_tree_based: bool = False
     illustrative_tree: object | None = None
     illustrative_tree_features: list[str] = field(default_factory=list)
+    is_imbalanced: bool = False
+    class_weight_applied: bool = False
+    feature_selection_applied: bool = False
+    dropped_low_variance_features: list[str] = field(default_factory=list)
+    n_features_before_selection: int = 0
+    n_features_after_selection: int = 0
+    cv_folds: int = 0
 
 
 def _compute_vif(X: pd.DataFrame) -> pd.Series:
@@ -193,10 +218,16 @@ def _regression_candidates() -> dict[str, object]:
     }
 
 
-def _classification_candidates() -> dict[str, object]:
+def _classification_candidates(class_weight: str | None = None) -> dict[str, object]:
     return {
-        "Logistic Regression": make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
-        "Random Forest": RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=RANDOM_STATE, n_jobs=-1),
+        "Logistic Regression": make_pipeline(
+            StandardScaler(), LogisticRegression(max_iter=2000, class_weight=class_weight)
+        ),
+        "Random Forest": RandomForestClassifier(
+            n_estimators=N_ESTIMATORS, random_state=RANDOM_STATE, n_jobs=-1, class_weight=class_weight
+        ),
+        # HistGradientBoostingClassifier has no class_weight constructor arg;
+        # imbalance is instead handled via sample_weight at fit time (below).
         "Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
     }
 
@@ -218,6 +249,64 @@ def _filter_candidates(candidates: dict[str, object], model_names: list[str] | N
     return filtered or candidates  # never leave the comparison empty
 
 
+def _select_features(
+    X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, task: str, max_features: int
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Drop near-zero-variance columns, then (if still too wide) keep only
+    the top-scoring ``max_features`` by an ANOVA F-test against the target.
+    Fit on the training split only -- the test split is just re-indexed to
+    match, so no information from it leaks into which features are kept."""
+    dropped_low_variance: list[str] = []
+    variances = X_train.var(numeric_only=True)
+    keep_cols = variances[variances > NEAR_ZERO_VARIANCE_THRESHOLD].index.tolist()
+    if len(keep_cols) < X_train.shape[1]:
+        dropped_low_variance = [c for c in X_train.columns if c not in keep_cols]
+        X_train, X_test = X_train[keep_cols], X_test[keep_cols]
+
+    if X_train.shape[1] > max_features:
+        score_func = f_classif if task == "classification" else f_regression
+        selector = SelectKBest(score_func=score_func, k=max_features)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # constant-column / low-count warnings from the score function
+            selector.fit(X_train, y_train)
+        keep_mask = selector.get_support()
+        X_train, X_test = X_train.loc[:, keep_mask], X_test.loc[:, keep_mask]
+
+    return X_train, X_test, dropped_low_variance
+
+
+def _cv_scoring_spec(task: str, n_classes: int | None) -> dict[str, tuple[str, int]]:
+    """Maps our display metric name -> (sklearn scorer string, sign). Sign is
+    -1 for sklearn's "neg_*" scorers so the reported number matches the
+    single-split path's convention (positive MAE/RMSE, not negative)."""
+    if task == "regression":
+        return {
+            "MAE": ("neg_mean_absolute_error", -1),
+            "RMSE": ("neg_root_mean_squared_error", -1),
+            "R2": ("r2", 1),
+        }
+    spec = {
+        "Accuracy": ("accuracy", 1),
+        "F1_weighted": ("f1_weighted", 1),
+        "Balanced_Accuracy": ("balanced_accuracy", 1),
+    }
+    if n_classes == 2:
+        spec["ROC_AUC"] = ("roc_auc", 1)
+    return spec
+
+
+def _cross_validate_metrics(
+    model: object, X: pd.DataFrame, y: pd.Series, cv_folds: int, scoring_spec: dict[str, tuple[str, int]]
+) -> dict[str, float]:
+    scoring = {display: sk_name for display, (sk_name, _sign) in scoring_spec.items()}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        scores = cross_validate(model, X, y, cv=cv_folds, scoring=scoring)
+    return {
+        display: float(sign * np.mean(scores[f"test_{display}"])) for display, (_sk, sign) in scoring_spec.items()
+    }
+
+
 def run_modeling(
     df: pd.DataFrame,
     target: str,
@@ -225,6 +314,9 @@ def run_modeling(
     task: str,
     test_size: float = TEST_SIZE,
     model_names: list[str] | None = None,
+    handle_imbalance: bool = True,
+    feature_selection: bool = True,
+    cv_folds: int = 0,
 ) -> ModelingResult:
     X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     y_raw = df[target]
@@ -233,9 +325,11 @@ def run_modeling(
         encoder = LabelEncoder()
         y = pd.Series(encoder.fit_transform(y_raw.astype(str)), index=df.index)
         class_labels = [str(c) for c in encoder.classes_]
+        n_classes = int(y.nunique())
     else:
         y = pd.to_numeric(y_raw, errors="coerce")
         class_labels = None
+        n_classes = None
 
     stratify = y if (task == "classification" and y.value_counts().min() >= 2) else None
     X_train, X_test, y_train, y_test = train_test_split(
@@ -244,52 +338,100 @@ def run_modeling(
 
     result = ModelingResult(task=task, target=target, n_train=len(X_train), n_test=len(X_test))
 
+    n_features_before = X_train.shape[1]
+    dropped_low_variance: list[str] = []
+    if feature_selection:
+        X_train, X_test, dropped_low_variance = _select_features(
+            X_train, X_test, y_train, task, MAX_SELECTED_FEATURES
+        )
+    result.feature_selection_applied = feature_selection
+    result.dropped_low_variance_features = dropped_low_variance
+    result.n_features_before_selection = n_features_before
+    result.n_features_after_selection = X_train.shape[1]
+
+    X_full = pd.concat([X_train, X_test])
+    y_full = pd.concat([y_train, y_test])
+
+    class_weight = None
+    sample_weight = None
+    is_imbalanced = False
+    if task == "classification":
+        counts = y_train.value_counts()
+        ratio = float(counts.max() / counts.min()) if counts.min() else float("inf")
+        is_imbalanced = ratio >= IMBALANCE_RATIO_THRESHOLD
+        if handle_imbalance and is_imbalanced:
+            class_weight = "balanced"
+            sample_weight = compute_sample_weight("balanced", y_train)
+    result.is_imbalanced = is_imbalanced
+    result.class_weight_applied = class_weight is not None
+
+    use_cv = cv_folds and cv_folds >= 2
+    if use_cv and task == "classification":
+        cv_folds = max(2, min(cv_folds, int(y_full.value_counts().min())))
+        use_cv = cv_folds >= 2
+    result.cv_folds = cv_folds if use_cv else 0
+
     if task == "regression":
         result.baseline = _fit_ols_baseline(X_train, y_train)
         candidates = _filter_candidates(_regression_candidates(), model_names)
-        comparison: dict[str, dict[str, float]] = {}
-        fitted_models: dict[str, object] = {}
-        for name, model in candidates.items():
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
-            comparison[name] = {
-                "MAE": float(mean_absolute_error(y_test, preds)),
-                "RMSE": float(np.sqrt(mean_squared_error(y_test, preds))),
-                "R2": float(r2_score(y_test, preds)),
-            }
-            fitted_models[name] = model
-        best_name = max(comparison, key=lambda n: comparison[n]["R2"])
-        scoring = "r2"
+        primary_metric = "R2"
     else:
-        n_classes = y.nunique()
         if n_classes == 2:
             result.baseline = _fit_logit_baseline(X_train, y_train)
         else:
             result.baseline = BaselineResult(
                 kind="skipped", note="Interpretable baseline is limited to binary targets; skipped for multiclass."
             )
-        candidates = _filter_candidates(_classification_candidates(), model_names)
-        comparison = {}
-        fitted_models = {}
-        for name, model in candidates.items():
-            model.fit(X_train, y_train)
+        candidates = _filter_candidates(_classification_candidates(class_weight=class_weight), model_names)
+        primary_metric = "F1_weighted"
+
+    scoring_spec = _cv_scoring_spec(task, n_classes)
+    comparison: dict[str, dict[str, float]] = {}
+    fitted_models: dict[str, object] = {}
+
+    for name, model in candidates.items():
+        needs_sample_weight = sample_weight is not None and name == "Gradient Boosting"
+        fit_kwargs = {"sample_weight": sample_weight} if needs_sample_weight else {}
+        if use_cv:
+            comparison[name] = _cross_validate_metrics(model, X_full, y_full, cv_folds, scoring_spec)
+        else:
+            model.fit(X_train, y_train, **fit_kwargs)
             preds = model.predict(X_test)
-            row = {
-                "Accuracy": float(accuracy_score(y_test, preds)),
-                "F1_weighted": float(f1_score(y_test, preds, average="weighted")),
-            }
-            if n_classes == 2:
-                proba = model.predict_proba(X_test)[:, 1]
-                row["ROC_AUC"] = float(roc_auc_score(y_test, proba))
-            comparison[name] = row
-            fitted_models[name] = model
-        best_name = max(comparison, key=lambda n: comparison[n]["F1_weighted"])
-        scoring = "f1_weighted"
+            if task == "regression":
+                comparison[name] = {
+                    "MAE": float(mean_absolute_error(y_test, preds)),
+                    "RMSE": float(np.sqrt(mean_squared_error(y_test, preds))),
+                    "R2": float(r2_score(y_test, preds)),
+                }
+            else:
+                row = {
+                    "Accuracy": float(accuracy_score(y_test, preds)),
+                    "F1_weighted": float(f1_score(y_test, preds, average="weighted")),
+                    "Balanced_Accuracy": float(balanced_accuracy_score(y_test, preds)),
+                }
+                if n_classes == 2:
+                    proba = model.predict_proba(X_test)[:, 1]
+                    row["ROC_AUC"] = float(roc_auc_score(y_test, proba))
+                comparison[name] = row
+        fitted_models[name] = model
+
+    best_name = max(comparison, key=lambda n: comparison[n][primary_metric])
+    scoring = "r2" if task == "regression" else "f1_weighted"
 
     result.model_comparison = comparison
     result.best_model_name = best_name
     result.metrics = comparison[best_name]
     best_model = fitted_models[best_name]
+
+    if use_cv:
+        # cross_validate fits its own internal clones; the object we hold
+        # onto here has never been fit. Refit on the standard single split
+        # so we have a concrete model to compute diagnostics/importance/tree
+        # against -- the headline metrics above remain the CV means.
+        best_fit_kwargs = (
+            {"sample_weight": sample_weight} if (sample_weight is not None and best_name == "Gradient Boosting") else {}
+        )
+        best_model.fit(X_train, y_train, **best_fit_kwargs)
 
     if task == "classification":
         best_preds = best_model.predict(X_test)
@@ -299,7 +441,7 @@ def run_modeling(
     importance = permutation_importance(
         best_model, X_test, y_test, n_repeats=5, random_state=RANDOM_STATE, scoring=scoring
     )
-    imp_series = pd.Series(importance.importances_mean, index=X.columns).sort_values(ascending=False)
+    imp_series = pd.Series(importance.importances_mean, index=X_train.columns).sort_values(ascending=False)
     result.feature_importances = {k: float(v) for k, v in imp_series.head(15).items()}
 
     result.is_tree_based = best_name in TREE_BASED_MODELS
@@ -315,6 +457,6 @@ def run_modeling(
             illustrative = DecisionTreeClassifier(max_depth=ILLUSTRATIVE_TREE_MAX_DEPTH, random_state=RANDOM_STATE)
         illustrative.fit(X_train, y_train)
         result.illustrative_tree = illustrative
-        result.illustrative_tree_features = list(X.columns)
+        result.illustrative_tree_features = list(X_train.columns)
 
     return result

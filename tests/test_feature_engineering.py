@@ -39,13 +39,32 @@ def test_geo_columns_produce_cluster_and_distance_features(mixed_type_df):
     assert report.geo_features_added == ["geo_cluster", "geo_dist_to_centroid"]
 
 
-def test_identifier_constant_and_text_columns_are_dropped(mixed_type_df):
+def test_identifier_and_constant_columns_are_dropped(mixed_type_df):
     schema, cleaned = _cleaned(mixed_type_df, "price")
     featured, report = engineer_features(cleaned, schema)
 
-    for col in ("row_id", "constant_col", "notes"):
+    for col in ("row_id", "constant_col"):
         assert col not in featured.columns
         assert col in report.dropped_columns
+
+
+def test_text_column_is_tfidf_vectorized_when_enough_rows(mixed_type_df):
+    schema, cleaned = _cleaned(mixed_type_df, "price")
+    featured, report = engineer_features(cleaned, schema, vectorize_text=True)
+
+    assert "notes" in report.text_vectorized
+    assert "notes" not in featured.columns
+    assert any(col.startswith("notes_tfidf_") for col in featured.columns)
+    assert "notes" not in report.dropped_columns
+
+
+def test_text_column_is_dropped_when_vectorization_disabled(mixed_type_df):
+    schema, cleaned = _cleaned(mixed_type_df, "price")
+    featured, report = engineer_features(cleaned, schema, vectorize_text=False)
+
+    assert "notes" not in featured.columns
+    assert "notes" in report.dropped_columns
+    assert not any(col.startswith("notes_tfidf_") for col in featured.columns)
 
 
 def test_target_column_survives_untouched(regression_df):

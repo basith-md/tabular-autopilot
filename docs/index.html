@@ -172,6 +172,19 @@
             <label><input type="checkbox" value="Random Forest" checked> Random Forest <span class="tag">both</span></label>
             <label><input type="checkbox" value="Gradient Boosting" checked> Gradient Boosting <span class="tag">both</span></label>
           </div>
+
+          <div class="settings-group-label">Modeling rigor</div>
+          <div class="checkbox-row">
+            <label><input type="checkbox" id="handle-imbalance" checked> Balance class weighting for imbalanced targets</label>
+            <label><input type="checkbox" id="vectorize-text" checked> TF-IDF vectorize free-text columns</label>
+            <label><input type="checkbox" id="feature-selection" checked> Automatic feature selection</label>
+            <label><input type="checkbox" id="use-cv"> Use k-fold cross-validation (slower)</label>
+          </div>
+          <div class="settings-row" id="cv-folds-row" style="display:none;">
+            <label for="cv-folds">Cross-validation folds</label>
+            <input type="range" id="cv-folds" min="2" max="10" step="1" value="5">
+            <span class="value" id="cv-folds-value">5</span>
+          </div>
         </div>
 
         <div id="steps"></div>

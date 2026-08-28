@@ -28,6 +28,7 @@ class CleaningReport:
     imputed_numeric: dict[str, float] = field(default_factory=dict)
     imputed_categorical: dict[str, str] = field(default_factory=dict)
     log_transformed: list[str] = field(default_factory=list)
+    numeric_impute_strategy: str = "median"
 
 
 NUMERIC_IMPUTE_STRATEGIES = ("median", "mean")
@@ -43,7 +44,7 @@ def clean_dataframe(
         raise ValueError(f"numeric_impute_strategy must be one of {NUMERIC_IMPUTE_STRATEGIES}")
 
     out = df.copy()
-    report = CleaningReport()
+    report = CleaningReport(numeric_impute_strategy=numeric_impute_strategy)
 
     for col in schema.numeric_cols:
         if col not in out.columns:

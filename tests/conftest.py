@@ -50,3 +50,34 @@ def classification_df() -> pd.DataFrame:
     prob = 1 / (1 + np.exp(-logit))
     label = (rng.uniform(size=n) < prob).astype(int)
     return pd.DataFrame({"x1": x1, "x2": x2, "flag": cat, "label": label})
+
+
+@pytest.fixture
+def imbalanced_classification_df() -> pd.DataFrame:
+    """~9:1 class imbalance, well above the 1.5:1 threshold, with a real
+    signal so class-weighting can plausibly change which model wins."""
+    rng = np.random.default_rng(2)
+    n_majority, n_minority = 270, 30
+    x1_maj = rng.normal(loc=0.0, size=n_majority)
+    x2_maj = rng.normal(loc=0.0, size=n_majority)
+    x1_min = rng.normal(loc=2.5, size=n_minority)
+    x2_min = rng.normal(loc=2.5, size=n_minority)
+    x1 = np.concatenate([x1_maj, x1_min])
+    x2 = np.concatenate([x2_maj, x2_min])
+    label = np.concatenate([np.zeros(n_majority), np.ones(n_minority)]).astype(int)
+    return pd.DataFrame({"x1": x1, "x2": x2, "label": label})
+
+
+@pytest.fixture
+def wide_regression_df() -> pd.DataFrame:
+    """A handful of real signal columns plus many pure-noise columns, so
+    feature selection has something meaningful to prune."""
+    rng = np.random.default_rng(3)
+    n = 300
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = 5 + 4 * x1 - 3 * x2 + rng.normal(scale=0.5, size=n)
+    df = pd.DataFrame({"x1": x1, "x2": x2, "target": y})
+    for i in range(80):
+        df[f"noise_{i}"] = rng.normal(size=n)
+    return df

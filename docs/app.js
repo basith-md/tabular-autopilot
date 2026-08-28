@@ -104,7 +104,8 @@ def js_peek_columns(path):
     except Exception as e:
         return json.dumps({"ok": False, "error": str(e)})
 
-def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy, model_names_json):
+def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy, model_names_json,
+               handle_imbalance, vectorize_text, feature_selection, cv_folds):
     try:
         from tabular_autopilot.pipeline import load_dataframe, run_pipeline
         from tabular_autopilot.report import render_html
@@ -125,6 +126,10 @@ def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy,
             numeric_impute_strategy=impute_strategy,
             test_size=float(test_size),
             model_names=model_names,
+            handle_imbalance=bool(handle_imbalance),
+            vectorize_text=bool(vectorize_text),
+            feature_selection=bool(feature_selection),
+            cv_folds=int(cv_folds),
         )
         html = render_html(result)
         return json.dumps({
@@ -180,6 +185,17 @@ maxRowsInput.addEventListener("input", () => {
   maxRowsValue.textContent = Number(maxRowsInput.value).toLocaleString();
 });
 
+const useCvInput = document.getElementById("use-cv");
+const cvFoldsRow = document.getElementById("cv-folds-row");
+const cvFoldsInput = document.getElementById("cv-folds");
+const cvFoldsValue = document.getElementById("cv-folds-value");
+useCvInput.addEventListener("change", () => {
+  cvFoldsRow.style.display = useCvInput.checked ? "grid" : "none";
+});
+cvFoldsInput.addEventListener("input", () => {
+  cvFoldsValue.textContent = cvFoldsInput.value;
+});
+
 function currentSettings() {
   const modelCheckboxes = [...document.querySelectorAll("#model-checkboxes input:checked")];
   return {
@@ -187,6 +203,10 @@ function currentSettings() {
     maxRows: Number(maxRowsInput.value),
     imputeStrategy: document.querySelector('input[name="impute"]:checked').value,
     modelNames: modelCheckboxes.map((c) => c.value),
+    handleImbalance: document.getElementById("handle-imbalance").checked,
+    vectorizeText: document.getElementById("vectorize-text").checked,
+    featureSelection: document.getElementById("feature-selection").checked,
+    cvFolds: useCvInput.checked ? Number(cvFoldsInput.value) : 0,
   };
 }
 
@@ -327,7 +347,11 @@ async function runAnalysis(path, target, displayName) {
       settings.maxRows,
       settings.testSize,
       settings.imputeStrategy,
-      JSON.stringify(settings.modelNames)
+      JSON.stringify(settings.modelNames),
+      settings.handleImbalance,
+      settings.vectorizeText,
+      settings.featureSelection,
+      settings.cvFolds
     );
     const parsed = JSON.parse(raw);
 

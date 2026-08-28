@@ -15,11 +15,13 @@ Most portfolio data-science projects are a single notebook analyzing a single da
 1. **Schema inference** — infers a role for every column using inspectable rules (not a black box): numeric, categorical (low/high cardinality), datetime, geospatial lat/lon pair, free text, identifier, or constant.
 2. **Profiling** — missingness, skewness, IQR-based outlier counts, top category values, duplicate rows.
 3. **Cleaning** — median or mean imputation (configurable) for numeric columns, mode imputation for categorical, automatic `log1p` transform for right-skewed columns, dropped rows with a missing target.
-4. **Feature engineering** — one-hot encoding for low-cardinality categoricals, frequency encoding for high-cardinality ones, full calendar + cyclical (sin/cos) expansion for datetime columns, KMeans spatial clustering + centroid distance for lat/lon pairs.
-5. **Modeling** — trains and compares up to **5 regression models** (Linear, Ridge, Lasso, Random Forest, Gradient Boosting) or **3 classification models** (Logistic Regression, Random Forest, Gradient Boosting) on an identical split and automatically picks the best by held-out score. Test split size and which candidate models to include are both configurable.
-6. **Statistical diagnostics** — an interpretable OLS/Logit baseline alongside the model comparison: VIF-based multicollinearity pruning, coefficient significance, a Breusch-Pagan heteroscedasticity test, residual and Q-Q plots. When a **tree ensemble** (Random Forest / Gradient Boosting) wins the comparison, a separate shallow decision tree is fit and drawn purely to illustrate the kind of split logic that ensemble is built from — the production model itself can't be visualized directly.
-7. **Time-series diagnostics** *(auto-triggered)* — whenever a datetime column and numeric target are both present: trend strength, an Augmented Dickey-Fuller stationarity test, ACF/PACF, and a short-horizon forecast.
-8. **Reporting** — a single self-contained HTML report (`tabular_autopilot.report`), or the same analysis live in a Streamlit app with a tab per section.
+4. **Feature engineering** — one-hot encoding for low-cardinality categoricals, frequency encoding for high-cardinality ones, full calendar + cyclical (sin/cos) expansion for datetime columns, KMeans spatial clustering + centroid distance for lat/lon pairs, and TF-IDF vectorization for free-text columns (instead of dropping them).
+5. **Feature selection** — near-zero-variance columns are dropped automatically, and (when there are more than 50 engineered features — common once TF-IDF is involved) `SelectKBest` keeps only the top-scoring ones, fit on the training split only.
+6. **Class imbalance handling** *(classification)* — target imbalance is detected and reported automatically; when enabled, balanced class weighting is applied (`class_weight="balanced"` where supported, `sample_weight` otherwise), and a balanced-accuracy metric is always reported alongside accuracy/F1/ROC-AUC.
+7. **Modeling** — trains and compares up to **5 regression models** (Linear, Ridge, Lasso, Random Forest, Gradient Boosting) or **3 classification models** (Logistic Regression, Random Forest, Gradient Boosting) on an identical split (or, optionally, k-fold cross-validation) and automatically picks the best by held-out score. Test split size and which candidate models to include are both configurable.
+8. **Statistical diagnostics** — an interpretable OLS/Logit baseline alongside the model comparison: VIF-based multicollinearity pruning, coefficient significance, a Breusch-Pagan heteroscedasticity test, residual and Q-Q plots. When a **tree ensemble** (Random Forest / Gradient Boosting) wins the comparison, a separate shallow decision tree is fit and drawn purely to illustrate the kind of split logic that ensemble is built from — the production model itself can't be visualized directly.
+9. **Time-series diagnostics** *(auto-triggered)* — whenever a datetime column and numeric target are both present: trend strength, an Augmented Dickey-Fuller stationarity test, ACF/PACF, and a short-horizon forecast.
+10. **Reporting** — a single self-contained HTML report (`tabular_autopilot.report`), or the same analysis live in a Streamlit app with a tab per section.
 
 ## Quickstart
 
@@ -82,7 +84,7 @@ docs/methodology.md       step-by-step explanation of every automated decision, 
 pytest -q
 ```
 
-32 tests cover schema inference for every column role (numeric, categorical, datetime, geospatial, text, identifier, constant), cleaning (including multi-encoding CSV loading), feature engineering, both baseline+comparison modeling paths (including the tree-ensemble illustrative-tree path), time-series diagnostics, and full end-to-end pipeline runs including edge cases (all-numeric data, EDA-only with no target, a geospatial dataset, a datetime+time-series dataset).
+43 tests cover schema inference for every column role (numeric, categorical, datetime, geospatial, text, identifier, constant), cleaning (including multi-encoding CSV loading), feature engineering (including TF-IDF text vectorization), both baseline+comparison modeling paths (tree-ensemble illustrative-tree, class imbalance, feature selection, and cross-validation), time-series diagnostics, and full end-to-end pipeline runs including edge cases (all-numeric data, EDA-only with no target, a geospatial dataset, a datetime+time-series dataset).
 
 ## Acknowledgment
 

@@ -145,11 +145,15 @@ def run_pipeline(
     numeric_impute_strategy: str = "median",
     test_size: float = 0.2,
     model_names: list[str] | None = None,
+    vectorize_text: bool = True,
+    handle_imbalance: bool = True,
+    feature_selection: bool = True,
+    cv_folds: int = 0,
 ) -> AnalysisResult:
     schema = infer_schema(df, target=target)
     profile = profile_dataframe(df, schema)
     cleaned_df, cleaning_report = clean_dataframe(df, schema, profile, numeric_impute_strategy)
-    featured_df, fe_report = engineer_features(cleaned_df, schema)
+    featured_df, fe_report = engineer_features(cleaned_df, schema, vectorize_text=vectorize_text)
 
     modeling_result = None
     if schema.target and schema.task:
@@ -160,6 +164,9 @@ def run_pipeline(
             schema.task,
             test_size=test_size,
             model_names=model_names,
+            handle_imbalance=handle_imbalance,
+            feature_selection=feature_selection,
+            cv_folds=cv_folds,
         )
 
     charts = _build_charts(cleaned_df, schema, profile, modeling_result)

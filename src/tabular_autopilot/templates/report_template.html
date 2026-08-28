@@ -41,6 +41,7 @@
   <p>Automated analysis report for <strong>{{ dataset_name }}</strong> &middot; {{ profile.n_rows }} rows &times; {{ profile.n_cols }} columns
   {% if schema.task %}<span class="badge">task: {{ schema.task }}</span>{% endif %}
   {% if schema.target %}<span class="badge">target: {{ schema.target }}</span>{% endif %}
+  {% if profile.class_balance and profile.class_balance.is_imbalanced %}<span class="badge">imbalanced target ({{ "%.1f"|format(profile.class_balance.imbalance_ratio) }}:1)</span>{% endif %}
   </p>
 </header>
 <main>
@@ -95,7 +96,7 @@
   <div class="grid">
     <div class="card">
       <h3>Cleaning</h3>
-      <p class="muted">Numeric columns imputed (median): {{ cleaning.imputed_numeric.keys()|list|join(", ") or "none" }}</p>
+      <p class="muted">Numeric columns imputed ({{ cleaning.numeric_impute_strategy }}): {{ cleaning.imputed_numeric.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Categorical columns imputed (mode): {{ cleaning.imputed_categorical.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Log-transformed (right-skewed): {{ cleaning.log_transformed|join(", ") or "none" }}</p>
     </div>
@@ -105,6 +106,7 @@
       <p class="muted">Frequency encoded: {{ fe.frequency_encoded|join(", ") or "none" }}</p>
       <p class="muted">Datetime expanded: {{ fe.datetime_expanded.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Geo features added: {{ fe.geo_features_added|join(", ") or "none" }}</p>
+      <p class="muted">Text columns TF-IDF vectorized: {{ fe.text_vectorized.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Dropped (identifier/constant/text): {{ fe.dropped_columns|join(", ") or "none" }}</p>
     </div>
   </div>
@@ -113,10 +115,30 @@
 {% if modeling %}
 <section>
   <h2>5. Modeling — {{ modeling.task }} on <code>{{ modeling.target }}</code></h2>
+  {% if modeling.cv_folds and modeling.cv_folds >= 2 %}
+  <p class="muted">Comparison metrics below are {{ modeling.cv_folds }}-fold cross-validation means over the full dataset. Diagnostics, the confusion matrix, feature importance and the illustrative tree are computed on a single held-out split ({{ modeling.n_train }} train / {{ modeling.n_test }} test rows) since those need one concrete fitted model.</p>
+  {% else %}
   <p class="muted">Trained on {{ modeling.n_train }} rows, evaluated on {{ modeling.n_test }} held-out rows.</p>
+  {% endif %}
+
+  {% if modeling.feature_selection_applied %}
+  <p class="muted">Feature selection: {{ modeling.n_features_before_selection }} engineered features
+    {%- if modeling.dropped_low_variance_features %} &rarr; {{ modeling.dropped_low_variance_features|length }} dropped as near-zero-variance{% endif %}
+    &rarr; <strong>{{ modeling.n_features_after_selection }}</strong> used for modeling
+    {%- if modeling.n_features_after_selection < modeling.n_features_before_selection - (modeling.dropped_low_variance_features|length) %} (top-scoring kept via SelectKBest){% endif -%}.
+  </p>
+  {% endif %}
+
+  {% if modeling.task == "classification" %}
+  <p class="muted">
+    Class balance: {% for label, count in profile.class_balance.counts.items() %}{{ label }}={{ count }}{% if not loop.last %}, {% endif %}{% endfor %}
+    {%- if modeling.is_imbalanced %} — <span class="warn">imbalanced ({{ "%.1f"|format(profile.class_balance.imbalance_ratio) }}:1)</span>{% if modeling.class_weight_applied %}, balanced class weighting applied automatically{% endif %}
+    {%- else %} — reasonably balanced{% endif -%}.
+  </p>
+  {% endif %}
 
   <h3>Model comparison</h3>
-  <p class="muted">{{ modeling.model_comparison|length }} candidate models trained on an identical train/test split; the report below uses the best performer.</p>
+  <p class="muted">{{ modeling.model_comparison|length }} candidate models{% if modeling.cv_folds and modeling.cv_folds >= 2 %} evaluated with {{ modeling.cv_folds }}-fold cross-validation{% else %} trained on an identical train/test split{% endif %}; the report below uses the best performer.</p>
   <table>
     <tr><th>Model</th>{% for metric in modeling.metrics.keys() %}<th>{{ metric }}</th>{% endfor %}</tr>
     {% for name, row in modeling.model_comparison.items() %}

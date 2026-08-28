@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from tabular_autopilot.modeling import available_model_names
 from tabular_autopilot.pipeline import load_dataframe, run_pipeline
 from tabular_autopilot.report import render_html
 
@@ -81,6 +82,21 @@ with st.sidebar:
         target_choice = st.selectbox("Target column", options, index=idx)
         target = None if target_choice.startswith("(none") else target_choice
 
+    st.header("3. Advanced settings")
+    with st.expander("Test split, imputation, models, imbalance, features", expanded=False):
+        test_size_pct = st.slider("Test set size (%)", 10, 40, 20, step=5)
+        impute_strategy = st.radio("Numeric missing-value strategy", ["median", "mean"], horizontal=True)
+        selected_models = st.multiselect(
+            "Models to compare (irrelevant ones for the detected task are ignored)",
+            available_model_names(),
+            default=available_model_names(),
+        )
+        handle_imbalance = st.checkbox("Balance class weighting for imbalanced targets", value=True)
+        vectorize_text = st.checkbox("TF-IDF vectorize free-text columns (instead of dropping them)", value=True)
+        feature_selection = st.checkbox("Automatic feature selection", value=True)
+        use_cv = st.checkbox("Use k-fold cross-validation instead of a single split (slower)", value=False)
+        cv_folds = st.slider("CV folds", 2, 10, 5, disabled=not use_cv) if use_cv else 0
+
     run_clicked = st.button("Analyze", type="primary", disabled=df is None)
 
 if df is None:
@@ -95,7 +111,18 @@ if not run_clicked:
 
 try:
     with st.spinner("Running automated pipeline..."):
-        result = run_pipeline(df, target=target, dataset_name=dataset_name)
+        result = run_pipeline(
+            df,
+            target=target,
+            dataset_name=dataset_name,
+            numeric_impute_strategy=impute_strategy,
+            test_size=test_size_pct / 100,
+            model_names=selected_models or None,
+            vectorize_text=vectorize_text,
+            handle_imbalance=handle_imbalance,
+            feature_selection=feature_selection,
+            cv_folds=cv_folds,
+        )
 except Exception as exc:
     st.error(f"Analysis failed: {exc}")
     st.stop()
@@ -143,7 +170,8 @@ with tabs[1]:
     st.subheader("Missing values")
     _img(result.charts.get("missingness"))
     if result.cleaning.imputed_numeric:
-        st.write("Numeric columns imputed (median):", result.cleaning.imputed_numeric)
+        strategy = result.cleaning.numeric_impute_strategy
+        st.write(f"Numeric columns imputed ({strategy}):", result.cleaning.imputed_numeric)
     if result.cleaning.imputed_categorical:
         st.write("Categorical columns imputed (mode):", result.cleaning.imputed_categorical)
 
@@ -184,6 +212,7 @@ with tabs[5]:
     st.write("One-hot encoded:", result.feature_engineering.one_hot_encoded or "none")
     st.write("Frequency encoded:", result.feature_engineering.frequency_encoded or "none")
     st.write("Datetime expanded:", list(result.feature_engineering.datetime_expanded.keys()) or "none")
+    st.write("Text columns TF-IDF vectorized:", list(result.feature_engineering.text_vectorized.keys()) or "none")
     st.write("Dropped (identifier/constant/text):", result.feature_engineering.dropped_columns or "none")
 
 with tabs[6]:
@@ -192,7 +221,16 @@ with tabs[6]:
     else:
         m = result.modeling
         st.subheader(f"{m.task.title()} model on `{m.target}`")
-        st.caption(f"{len(m.model_comparison)} candidate models compared on an identical train/test split.")
+        split_desc = f"{m.cv_folds}-fold cross-validation" if m.cv_folds >= 2 else "an identical train/test split"
+        st.caption(f"{len(m.model_comparison)} candidate models compared using {split_desc}.")
+        if m.feature_selection_applied:
+            st.caption(
+                f"Feature selection: {m.n_features_before_selection} engineered features → "
+                f"{m.n_features_after_selection} used for modeling."
+            )
+        if m.task == "classification" and m.is_imbalanced:
+            note = " (balanced class weighting applied)" if m.class_weight_applied else " (weighting disabled)"
+            st.warning(f"Target is imbalanced ({profile.class_balance.imbalance_ratio:.1f}:1){note}.")
         comp_df = pd.DataFrame(m.model_comparison).T
         st.dataframe(comp_df, width="stretch")
         st.markdown(f"**Best model:** `{m.best_model_name}`")

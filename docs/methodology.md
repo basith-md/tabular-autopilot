@@ -88,6 +88,23 @@ This tool's design was informed by two prior bodies of work, neither of which it
 
 - A **5-author bootcamp group project** analyzing California housing prices (OLS + a small neural net), which is why the geospatial clustering, VIF/heteroscedasticity/Q-Q diagnostic rigor, and the choice of California Housing as the flagship example exist.
 - A **university predictive-analytics course** (~21 R scripts spanning OLS, logistic regression, decision trees, random forests, best-subset/stepwise selection, ridge/lasso regularization, and seven time-series scripts covering stationarity, ACF/PACF, AR/MA simulation, and interrupted-time-series/intervention regression). That breadth is why the model-comparison step exists instead of a single hardcoded algorithm, and why time-series diagnostics are a first-class, automatically-triggered path rather than an afterthought.
+- Kevin Markham's **"Master Machine Learning with scikit-learn"** (20-chapter book/course on the full sklearn workflow) — cross-checking its chapter list against this pipeline is what prompted adding TF-IDF text encoding, class-imbalance handling, automatic feature selection, and cross-validation as an alternative to a single train/test split, all covered below.
+
+### 5f. Text encoding (TF-IDF)
+
+Free-text columns were previously dropped outright. Now, when there's enough data for it to be meaningful (≥20 rows) and text vectorization is enabled, up to 2 text columns are TF-IDF vectorized (English stop words removed, top 20 terms per column by default) and the resulting term columns feed into modeling like any other numeric feature. This is fit on the full cleaned dataset before the train/test split — the same mild-leakage tolerance already accepted for one-hot/frequency encoding elsewhere in the pipeline, not a new exception.
+
+### 5g. Class imbalance (classification)
+
+Target class counts are always computed and reported; a majority:minority ratio ≥ 1.5 is flagged as imbalanced. When enabled (the default), imbalance is addressed via `class_weight="balanced"` for Logistic Regression and Random Forest (both accept it as a constructor argument), and via `sample_weight` at fit time for Gradient Boosting (`HistGradientBoostingClassifier` has no `class_weight` parameter). A **balanced accuracy** metric is always reported alongside accuracy/F1/ROC-AUC regardless of whether weighting is applied, since plain accuracy is misleading on imbalanced targets even when you're not actively correcting for it.
+
+### 5h. Automatic feature selection
+
+After feature engineering (and before modeling), near-zero-variance columns are dropped, and — if more than 50 features remain — `SelectKBest` (ANOVA F-test: `f_regression` or `f_classif`) keeps only the top 50, fit on the training split only so the test split can't leak into which features are chosen. This matters most once TF-IDF vectorization is in play, since it can add dozens of columns per text field.
+
+### 5i. Cross-validation as an alternative to a single split
+
+Off by default (it multiplies runtime by the fold count, a real cost in the browser demo specifically). When enabled, each candidate model's headline metrics become k-fold cross-validation means over the full dataset instead of a single train/test split's numbers. Diagnostics that need one concrete fitted model — the confusion matrix, permutation importance, and the illustrative tree — still come from a single held-out split, refit after the winner is chosen; the report is explicit about which numbers come from which source so the two aren't conflated.
 
 ### Known gaps / roadmap
 
@@ -97,6 +114,7 @@ Deliberately out of scope for v0.1 (flagged here rather than silently missing):
 - **Unsupervised methods** — no PCA/dimensionality reduction, no standalone clustering report (KMeans is used internally only for geospatial features, not exposed as a general-purpose EDA step).
 - **True ARIMA/SARIMA modeling** — the current forecast uses Exponential Smoothing rather than `statsmodels`' ARIMA/SARIMAX with formal order selection; there's no seasonal decomposition or seasonal ARIMA for multi-seasonality data.
 - **Interrupted time series / intervention analysis** — detecting a level-shift around a known event date (e.g., a policy change or product launch) is a distinct, valuable technique that was not automated here.
-- **Text columns** are detected and reported on, but not analyzed beyond that (no NLP features, embeddings, or sentiment).
+- **Target/mean encoding** for high-cardinality categoricals — frequency encoding is used instead; target encoding needs careful out-of-fold computation to avoid leakage that wasn't judged worth the complexity yet.
+- **Hyperparameter tuning** (GridSearchCV/RandomizedSearchCV) — Ridge and Lasso already CV-tune their own regularization strength internally, but Random Forest and Gradient Boosting run with fixed defaults rather than a tuned search.
 
 These are natural v0.2 candidates and are listed here rather than glossed over, since knowing what a tool *doesn't* do is as important as knowing what it does.

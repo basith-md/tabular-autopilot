@@ -10,8 +10,9 @@ dataset-specific hand-crafted features:
                           month and day-of-week.
 - geospatial lat/lon pair -> KMeans spatial cluster id + distance from the
                           point to its cluster centroid.
-- ``identifier``/``constant``/``text`` -> dropped from the feature matrix
-                          (not useful, or out of scope, as model input).
+- ``text``             -> TF-IDF vectorized (top terms, capped) when there's
+                          enough data for it to be meaningful; otherwise
+                          dropped, same as ``identifier``/``constant``.
 """
 
 from __future__ import annotations
@@ -21,10 +22,14 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 from tabular_autopilot.schema import SchemaResult
 
 N_GEO_CLUSTERS = 8
+MAX_TEXT_COLUMNS_VECTORIZED = 2
+MAX_TEXT_FEATURES_PER_COL = 20
+MIN_ROWS_FOR_TEXT_VECTORIZATION = 20
 
 
 @dataclass
@@ -33,6 +38,7 @@ class FeatureEngineeringReport:
     frequency_encoded: list[str] = field(default_factory=list)
     datetime_expanded: dict[str, list[str]] = field(default_factory=dict)
     geo_features_added: list[str] = field(default_factory=list)
+    text_vectorized: dict[str, list[str]] = field(default_factory=dict)
     dropped_columns: list[str] = field(default_factory=list)
     final_feature_columns: list[str] = field(default_factory=list)
 
@@ -77,8 +83,26 @@ def _add_geo_features(df: pd.DataFrame, lat_col: str, lon_col: str) -> list[str]
     return [cluster_col, dist_col]
 
 
+def _vectorize_text(df: pd.DataFrame, col: str, max_features: int = MAX_TEXT_FEATURES_PER_COL) -> list[str]:
+    texts = df[col].fillna("").astype(str)
+    if texts.str.strip().eq("").all():
+        return []
+    vectorizer = TfidfVectorizer(max_features=max_features, stop_words="english", min_df=2)
+    try:
+        matrix = vectorizer.fit_transform(texts)
+    except ValueError:
+        return []  # e.g. empty vocabulary after stopword removal
+    terms = list(vectorizer.get_feature_names_out())
+    if not terms:
+        return []
+    dense = matrix.toarray()
+    for i, term in enumerate(terms):
+        df[f"{col}_tfidf_{term}"] = dense[:, i]
+    return terms
+
+
 def engineer_features(
-    df: pd.DataFrame, schema: SchemaResult
+    df: pd.DataFrame, schema: SchemaResult, vectorize_text: bool = True
 ) -> tuple[pd.DataFrame, FeatureEngineeringReport]:
     out = df.copy()
     report = FeatureEngineeringReport()
@@ -108,6 +132,15 @@ def engineer_features(
     if schema.has_geo:
         geo_cols = _add_geo_features(out, schema.geo_lat_col, schema.geo_lon_col)
         report.geo_features_added = geo_cols
+
+    if vectorize_text and len(out) >= MIN_ROWS_FOR_TEXT_VECTORIZATION:
+        for col in schema.text_cols[:MAX_TEXT_COLUMNS_VECTORIZED]:
+            if col not in out.columns:
+                continue
+            terms = _vectorize_text(out, col)
+            if terms:
+                report.text_vectorized[col] = terms
+                out = out.drop(columns=[col])
 
     to_drop = [c for c in schema.identifier_cols + schema.constant_cols + schema.text_cols if c in out.columns]
     if to_drop:

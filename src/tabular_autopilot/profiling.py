@@ -15,6 +15,16 @@ from tabular_autopilot.schema import SchemaResult
 
 SKEW_THRESHOLD = 1.0
 OUTLIER_IQR_MULT = 1.5
+IMBALANCE_RATIO_THRESHOLD = 1.5  # majority:minority above this counts as "imbalanced"
+
+
+@dataclass
+class ClassBalance:
+    counts: dict[str, int]
+    majority_class: str
+    minority_class: str
+    imbalance_ratio: float  # majority count / minority count
+    is_imbalanced: bool
 
 
 @dataclass
@@ -39,6 +49,24 @@ class ProfileReport:
     numeric_profiles: dict[str, NumericProfile]
     categorical_top_values: dict[str, dict[str, int]]
     duplicate_rows: int
+    class_balance: ClassBalance | None = None
+
+
+def _compute_class_balance(df: pd.DataFrame, schema: SchemaResult) -> ClassBalance | None:
+    if schema.task != "classification" or not schema.target or schema.target not in df.columns:
+        return None
+    counts = df[schema.target].astype(str).value_counts(dropna=True)
+    if len(counts) < 2:
+        return None
+    majority, minority = counts.index[0], counts.index[-1]
+    ratio = float(counts.iloc[0] / counts.iloc[-1]) if counts.iloc[-1] else float("inf")
+    return ClassBalance(
+        counts={str(k): int(v) for k, v in counts.items()},
+        majority_class=str(majority),
+        minority_class=str(minority),
+        imbalance_ratio=ratio,
+        is_imbalanced=ratio >= IMBALANCE_RATIO_THRESHOLD,
+    )
 
 
 def _iqr_outlier_count(series: pd.Series) -> int:
@@ -93,4 +121,5 @@ def profile_dataframe(df: pd.DataFrame, schema: SchemaResult) -> ProfileReport:
         numeric_profiles=numeric_profiles,
         categorical_top_values=categorical_top_values,
         duplicate_rows=int(df.duplicated().sum()),
+        class_balance=_compute_class_balance(df, schema),
     )
