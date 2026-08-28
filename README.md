@@ -1,5 +1,7 @@
 # tabular-autopilot
 
+**[Try the live browser demo →](https://basith-md.github.io/tabular-autopilot/)** — drag in a CSV or Excel file and watch the full pipeline run, entirely client-side. There is no backend for that page: the actual `tabular_autopilot` package is compiled to WebAssembly (via [Pyodide](https://pyodide.org)) and runs on your CPU, so nothing you drop there is ever uploaded anywhere.
+
 **Point it at any CSV or Excel file and a target column — it profiles the data, cleans it, engineers features appropriate to whatever column types are present, compares 3–5 candidate models, runs full statistical diagnostics, and (if there's a datetime column) a separate time-series analysis. One command or one click; zero dataset-specific code.**
 
 Built as a generalized, testable system rather than a one-off analysis notebook: the column-role inference, cleaning, feature engineering, and modeling logic is identical no matter which dataset you give it — the *decisions* it makes (what to impute, how to encode, which model wins) change with the data.
@@ -32,6 +34,17 @@ streamlit run app.py
 ```
 
 The Streamlit app is deploy-ready as-is on Streamlit Community Cloud or Hugging Face Spaces — point the platform at `app.py` and it's live, no code changes required.
+
+## The browser demo (`docs/`)
+
+[basith-md.github.io/tabular-autopilot](https://basith-md.github.io/tabular-autopilot/) is a static page (hosted for free on GitHub Pages, no server) that runs the *exact same* `tabular_autopilot` package via [Pyodide](https://pyodide.org) — CPython compiled to WebAssembly. On page load it boots the engine in the background (numpy, pandas, scikit-learn, statsmodels, matplotlib) and installs `tabular_autopilot` itself from a wheel built straight from this source tree, then a drag-and-drop file triggers the identical `run_pipeline()` / `render_html()` the CLI uses — rendered inline in an iframe. Nothing is ever sent to a server; the only network activity is downloading the (cached-after-first-load) Python runtime and package wheels.
+
+To rebuild the wheel after a code change:
+
+```bash
+python -m pip install build
+python -m build --wheel --outdir docs/dist
+```
 
 ## Worked examples (3 datasets, 3 data shapes)
 

@@ -31,6 +31,9 @@ tabular-autopilot = "tabular_autopilot.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tabular_autopilot = ["templates/*.html"]
+
 [tool.ruff]
 line-length = 120
 

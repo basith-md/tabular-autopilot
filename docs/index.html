@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tabular-autopilot — automated data analysis, running in your browser</title>
+<meta name="description" content="Drop a CSV or Excel file and watch an automated profiling, cleaning, feature-engineering, modeling and diagnostics pipeline run entirely client-side via WebAssembly. No upload, no server.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%235aa9e6%22/><text x=%2216%22 y=%2222%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22%23051019%22 font-family=%22monospace%22>ta</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> tabular-autopilot</div>
+    <nav class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#demo">Live demo</a>
+      <a href="https://github.com/basith-md/tabular-autopilot">GitHub</a>
+      <a href="methodology.md">Methodology</a>
+    </nav>
+    <div id="engine-status" class="engine-status">
+      <div class="spinner"></div>
+      <span class="label">Booting Python engine…</span>
+    </div>
+  </div>
+</div>
+
+<header class="hero wrap">
+  <span class="eyebrow">⚡ Runs 100% in your browser — no server, no upload</span>
+  <h1>Drop a dataset. Watch a full<br>data-science pipeline run itself.</h1>
+  <p class="lede">
+    Schema inference, cleaning, feature engineering, a 3–5 model comparison, statistical
+    diagnostics, and time-series analysis — the same open-source Python engine, compiled to
+    WebAssembly and running on <em>your</em> CPU. Nothing you drop here ever leaves this tab.
+  </p>
+  <div class="hero-ctas">
+    <a class="btn btn-primary" href="#demo">Try it now ↓</a>
+    <a class="btn btn-ghost" href="https://github.com/basith-md/tabular-autopilot">View source</a>
+  </div>
+</header>
+
+<section id="how-it-works" class="wrap">
+  <div class="section-head">
+    <h2>What happens when you drop a file</h2>
+    <p>Every stage is generic — the same code path runs for a housing dataset, a passenger manifest, or a retail sales log. The only thing that changes is what the data tells it to do.</p>
+  </div>
+
+  <div class="pipeline">
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+      </div>
+      <h3>Upload</h3>
+      <p>CSV or Excel, read straight into a dataframe — no size limit beyond your own RAM.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M21 21l-4.3-4.3"/></svg>
+      </div>
+      <h3>Schema inference</h3>
+      <p>Every column is classified: numeric, categorical, datetime, geospatial, text, identifier.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/><path d="M18 12l.9 1.8L21 15l-2.1 1.2L18 18l-.9-1.8L15 15l2.1-1.2z"/><path d="M4 14l6 6L21 9"/></svg>
+      </div>
+      <h3>Cleaning</h3>
+      <p>Median/mode imputation, skew correction, per the profile — not hardcoded per dataset.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2-2z"/></svg>
+      </div>
+      <h3>Feature engineering</h3>
+      <p>One-hot / frequency encoding, calendar expansion, geospatial clustering — role-driven.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M11 20V4"/><path d="M18 20v-7"/></svg>
+      </div>
+      <h3>Model comparison</h3>
+      <p>5 regressors or 3 classifiers trained on an identical split; best one wins automatically.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 8 4-16 2 8h6"/></svg>
+      </div>
+      <h3>Diagnostics</h3>
+      <p>VIF pruning, Breusch-Pagan, Q-Q and residual plots — plus ACF/stationarity for dates.</p>
+    </div>
+
+    <div class="pipe-node">
+      <div class="pipe-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>
+      </div>
+      <h3>Report</h3>
+      <p>A full HTML report, rendered right here — the exact same template the CLI writes to disk.</p>
+    </div>
+  </div>
+</section>
+
+<section id="demo" class="wrap">
+  <div class="section-head">
+    <h2>Try it on your own data</h2>
+    <p>Pick a sample dataset or drop your own file below. The Python engine boots in the background as soon as this page loads — the badge top-right tracks its progress.</p>
+  </div>
+
+  <div class="demo-shell">
+    <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Drop a CSV or Excel file, or click to browse">
+      <div class="cloud-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V8"/><path d="M8.5 11.5L12 8l3.5 3.5"/><path d="M7 20h10a4 4 0 0 0 1-7.9A5.5 5.5 0 0 0 7.5 9 4.5 4.5 0 0 0 7 20z"/></svg>
+      </div>
+      <h3>Drop a CSV or Excel file here</h3>
+      <p>or click to browse — analysis runs entirely on your machine</p>
+      <input id="file-input" type="file" accept=".csv,.xlsx,.xls">
+      <div class="privacy-note">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        Your file is never uploaded anywhere
+      </div>
+    </div>
+
+    <div class="sample-row">
+      <span class="chip" data-sample="housing.csv" data-target="median_house_value">🏠 California Housing (regression)</span>
+      <span class="chip" data-sample="titanic.csv" data-target="Survived">🚢 Titanic (classification)</span>
+      <span class="chip" data-sample="retail_sales.csv" data-target="units_sold">📈 Retail Sales (time series)</span>
+    </div>
+
+    <div id="steps"></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <h2>Why this is a real engine, not a demo mockup</h2>
+    <p>This page loads the identical <code>tabular_autopilot</code> Python package used by the CLI and the Streamlit app — packaged as a wheel and installed at runtime via Pyodide's <code>micropip</code>.</p>
+  </div>
+  <div class="grid-3">
+    <div class="feature-card">
+      <h3>Same code, three interfaces</h3>
+      <p>CLI, Streamlit app, and this browser demo all call the exact same <code>run_pipeline()</code> — no separate "demo" logic to drift out of sync.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Genuinely private</h3>
+      <p>There is no backend for this page to call. Your data is parsed and modeled by WebAssembly running in this tab, and discarded when you close it.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Honest about scale</h3>
+      <p>Datasets over 5,000 rows are sampled down for this in-browser demo to stay responsive — the CLI and Streamlit app run the full dataset.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p>tabular-autopilot is MIT-licensed. <a href="https://github.com/basith-md/tabular-autopilot">Source on GitHub</a> · <a href="methodology.md">Methodology</a></p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
