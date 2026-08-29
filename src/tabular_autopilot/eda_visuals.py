@@ -24,6 +24,8 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 from scipy import stats as scipy_stats
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from sklearn.tree import plot_tree
 
 # --- Palette (dataviz skill, references/palette.md) -------------------------
@@ -144,18 +146,101 @@ def plot_target_by_category(df: pd.DataFrame, target: str, cat_col: str) -> str 
     return _fig_to_data_uri(fig)
 
 
-def plot_geo_scatter(df: pd.DataFrame, lat_col: str, lon_col: str, color_col: str | None) -> str | None:
+def plot_geo_scatter(
+    df: pd.DataFrame,
+    lat_col: str,
+    lon_col: str,
+    target_col: str | None,
+    task: str | None = None,
+    cluster_col: str | None = None,
+) -> str | None:
+    """Two panels, both at an equal aspect ratio so the point cloud reads as
+    an actual map rather than a stretched blob: one colored by the target
+    (what the data looks like), one colored by the ``geo_cluster`` feature
+    the pipeline engineered (what feature engineering actually did to it)."""
     if lat_col not in df.columns or lon_col not in df.columns:
         return None
-    fig, ax = plt.subplots(figsize=(7, 6))
-    if color_col and color_col in df.columns:
-        sc = ax.scatter(df[lon_col], df[lat_col], c=df[color_col], cmap=SEQUENTIAL_BLUE_CMAP, s=10, alpha=0.7)
-        fig.colorbar(sc, ax=ax, label=color_col)
+    has_cluster = cluster_col is not None and cluster_col in df.columns and df[cluster_col].nunique() > 1
+    n_panels = 2 if has_cluster else 1
+    fig, axes = plt.subplots(1, n_panels, figsize=(6.2 * n_panels, 5.6))
+    axes = np.atleast_1d(axes)
+
+    ax = axes[0]
+    if target_col and target_col in df.columns:
+        if task == "classification":
+            classes = sorted(df[target_col].astype(str).unique())[: len(CATEGORICAL)]
+            for i, cls in enumerate(classes):
+                mask = df[target_col].astype(str) == cls
+                ax.scatter(
+                    df.loc[mask, lon_col], df.loc[mask, lat_col], s=10, alpha=0.7,
+                    color=CATEGORICAL[i % len(CATEGORICAL)], label=cls, edgecolors="none",
+                )
+            ax.legend(frameon=False, fontsize=8, title=target_col, loc="best")
+        else:
+            sc = ax.scatter(df[lon_col], df[lat_col], c=df[target_col], cmap=SEQUENTIAL_BLUE_CMAP, s=10, alpha=0.7)
+            fig.colorbar(sc, ax=ax, label=target_col)
+        ax.set_title(f"Colored by {target_col}")
     else:
-        ax.scatter(df[lon_col], df[lat_col], s=10, alpha=0.6, color=CAT_BLUE)
+        ax.scatter(df[lon_col], df[lat_col], s=10, alpha=0.6, color=CAT_BLUE, edgecolors="none")
+        ax.set_title("Point density")
     ax.set_xlabel(lon_col)
     ax.set_ylabel(lat_col)
-    ax.set_title("Geospatial distribution")
+    ax.set_aspect("equal", adjustable="datalim")
+
+    if has_cluster:
+        ax2 = axes[1]
+        clusters = sorted(c for c in df[cluster_col].unique() if c != -1)
+        for i, cluster_id in enumerate(clusters):
+            mask = df[cluster_col] == cluster_id
+            ax2.scatter(
+                df.loc[mask, lon_col], df.loc[mask, lat_col], s=10, alpha=0.7,
+                color=CATEGORICAL[i % len(CATEGORICAL)], label=f"cluster {cluster_id}", edgecolors="none",
+            )
+        ax2.set_xlabel(lon_col)
+        ax2.set_ylabel(lat_col)
+        ax2.set_title(f"Colored by spatial cluster (KMeans, k={len(clusters)})")
+        ax2.set_aspect("equal", adjustable="datalim")
+        ax2.legend(frameon=False, fontsize=7, ncol=2, loc="best")
+
+    fig.tight_layout()
+    return _fig_to_data_uri(fig)
+
+
+def plot_pca_scatter(X: pd.DataFrame, y: pd.Series | None, task: str | None) -> str | None:
+    """A 2D PCA projection of the final engineered feature matrix -- a quick
+    "does this data separate at all" visual, run before modeling commits to
+    any one algorithm. Most useful once TF-IDF adds dozens of columns."""
+    numeric_X = X.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    numeric_X = numeric_X.loc[:, numeric_X.std(numeric_only=True) > 1e-8]
+    if numeric_X.shape[1] < 2 or numeric_X.shape[0] < 3:
+        return None
+    scaled = StandardScaler().fit_transform(numeric_X)
+    pca = PCA(n_components=2, random_state=42)
+    coords = pca.fit_transform(scaled)
+
+    fig, ax = plt.subplots(figsize=(6.2, 5.4))
+    if y is not None and task == "classification":
+        labels = pd.Series(y).astype(str).reset_index(drop=True)
+        for i, cls in enumerate(sorted(labels.unique())[: len(CATEGORICAL)]):
+            mask = (labels == cls).to_numpy()
+            ax.scatter(
+                coords[mask, 0], coords[mask, 1], s=12, alpha=0.7,
+                color=CATEGORICAL[i % len(CATEGORICAL)], label=cls, edgecolors="none",
+            )
+        ax.legend(frameon=False, fontsize=8, loc="best")
+    elif y is not None:
+        sc = ax.scatter(
+            coords[:, 0], coords[:, 1], c=pd.to_numeric(y, errors="coerce"), cmap=SEQUENTIAL_BLUE_CMAP, s=12, alpha=0.7
+        )
+        fig.colorbar(sc, ax=ax, label="target")
+    else:
+        ax.scatter(coords[:, 0], coords[:, 1], s=12, alpha=0.6, color=CAT_BLUE, edgecolors="none")
+
+    var1, var2 = pca.explained_variance_ratio_[:2] * 100
+    ax.set_xlabel(f"PC1 ({var1:.0f}% of variance)")
+    ax.set_ylabel(f"PC2 ({var2:.0f}% of variance)")
+    ax.set_title("PCA projection of engineered features")
+    fig.tight_layout()
     return _fig_to_data_uri(fig)
 
 

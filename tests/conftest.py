@@ -69,6 +69,31 @@ def imbalanced_classification_df() -> pd.DataFrame:
 
 
 @pytest.fixture
+def redundant_pairs_df() -> pd.DataFrame:
+    """x1 and x1_twin are near-perfectly correlated (a real redundancy);
+    x2 is independent, so the report should flag exactly one pair."""
+    rng = np.random.default_rng(4)
+    n = 200
+    x1 = rng.normal(size=n)
+    x1_twin = x1 * 2.0 + rng.normal(scale=0.01, size=n)
+    x2 = rng.normal(size=n)
+    y = 5 + 3 * x1 - 2 * x2 + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame({"x1": x1, "x1_twin": x1_twin, "x2": x2, "target": y})
+
+
+@pytest.fixture
+def outlier_df() -> pd.DataFrame:
+    """A mostly-normal numeric column with a handful of extreme values, and
+    a signal-bearing target so the pipeline can still fit a model."""
+    rng = np.random.default_rng(5)
+    n = 200
+    x1 = rng.normal(loc=50, scale=5, size=n)
+    x1[:5] = [500, 520, 480, 510, 490]  # clear IQR outliers
+    y = 2 * x1 + rng.normal(scale=5, size=n)
+    return pd.DataFrame({"x1": x1, "target": y})
+
+
+@pytest.fixture
 def wide_regression_df() -> pd.DataFrame:
     """A handful of real signal columns plus many pure-noise columns, so
     feature selection has something meaningful to prune."""

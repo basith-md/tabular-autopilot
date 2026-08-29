@@ -78,6 +78,16 @@
     {% endfor %}
   </table>
   {% endif %}
+  {% if profile.redundant_pairs %}
+  <h3 style="margin-top:1.5rem;">Redundant feature pairs (|r| &ge; 0.9)</h3>
+  <p class="muted">These numeric columns move almost interchangeably — worth dropping one of each pair regardless of which model ends up winning below.</p>
+  <table>
+    <tr><th>Column A</th><th>Column B</th><th>Correlation</th></tr>
+    {% for pair in profile.redundant_pairs %}
+    <tr><td>{{ pair.col_a }}</td><td>{{ pair.col_b }}</td><td>{{ "%.3f"|format(pair.correlation) }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
 </section>
 
 <section>
@@ -99,6 +109,9 @@
       <p class="muted">Numeric columns imputed ({{ cleaning.numeric_impute_strategy }}): {{ cleaning.imputed_numeric.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Categorical columns imputed (mode): {{ cleaning.imputed_categorical.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Log-transformed (right-skewed): {{ cleaning.log_transformed|join(", ") or "none" }}</p>
+      {% if cleaning.outlier_capping_applied %}
+      <p class="muted">Outliers capped at IQR fences: {{ cleaning.outlier_capped.keys()|list|join(", ") or "none needed capping" }}</p>
+      {% endif %}
     </div>
     <div class="card">
       <h3>Feature engineering</h3>
@@ -110,6 +123,13 @@
       <p class="muted">Dropped (identifier/constant/text): {{ fe.dropped_columns|join(", ") or "none" }}</p>
     </div>
   </div>
+  {% if charts.pca_scatter %}
+  <div class="card" style="margin-top:1.5rem;">
+    <h3>Feature separability (PCA projection)</h3>
+    <p class="muted">A 2D projection of every engineered feature, colored by {{ "class" if schema.task == "classification" else "target value" }} — a quick visual for whether the data separates at all before committing to any one model below.</p>
+    <img src="{{ charts.pca_scatter }}">
+  </div>
+  {% endif %}
 </section>
 
 {% if modeling %}
@@ -150,6 +170,12 @@
   </table>
 
   <h3>Best model — {{ modeling.best_model_name }}</h3>
+  {% if modeling.best_hyperparameters %}
+  <p class="muted">
+    Hyperparameters{% if modeling.hyperparameter_search_applied %} <span class="badge">found via grid search</span>{% endif %}:
+    {% for k, v in modeling.best_hyperparameters.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  {% endif %}
   <div class="metric-row">
     {% for name, val in modeling.metrics.items() %}
     <div class="metric"><div class="label">{{ name }}</div><div class="value">{{ "%.4f"|format(val) }}</div></div>

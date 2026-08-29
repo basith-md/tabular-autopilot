@@ -49,3 +49,20 @@ def test_class_balance_not_flagged_when_roughly_even(classification_df):
 
     assert profile.class_balance is not None
     assert profile.class_balance.imbalance_ratio < 1.5
+
+
+def test_redundant_pairs_flags_the_near_duplicate_column(redundant_pairs_df):
+    schema = infer_schema(redundant_pairs_df, target="target")
+    profile = profile_dataframe(redundant_pairs_df, schema)
+
+    pairs = {frozenset((p.col_a, p.col_b)) for p in profile.redundant_pairs}
+    assert frozenset({"x1", "x1_twin"}) in pairs
+    assert frozenset({"x1", "x2"}) not in pairs
+    assert all(abs(p.correlation) >= 0.9 for p in profile.redundant_pairs)
+
+
+def test_redundant_pairs_empty_when_nothing_is_redundant(regression_df):
+    schema = infer_schema(regression_df, target="target")
+    profile = profile_dataframe(regression_df, schema)
+
+    assert profile.redundant_pairs == []

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from tabular_autopilot.profiling import ProfileReport
+from tabular_autopilot.profiling import OUTLIER_IQR_MULT, ProfileReport
 from tabular_autopilot.schema import SchemaResult
 
 
@@ -29,9 +29,22 @@ class CleaningReport:
     imputed_categorical: dict[str, str] = field(default_factory=dict)
     log_transformed: list[str] = field(default_factory=list)
     numeric_impute_strategy: str = "median"
+    outlier_capping_applied: bool = False
+    outlier_capped: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 NUMERIC_IMPUTE_STRATEGIES = ("median", "mean")
+
+
+def _iqr_bounds(series: pd.Series) -> tuple[float, float] | None:
+    clean = series.dropna()
+    if clean.empty:
+        return None
+    q1, q3 = clean.quantile([0.25, 0.75])
+    iqr = q3 - q1
+    if iqr == 0:
+        return None
+    return float(q1 - OUTLIER_IQR_MULT * iqr), float(q3 + OUTLIER_IQR_MULT * iqr)
 
 
 def clean_dataframe(
@@ -39,12 +52,13 @@ def clean_dataframe(
     schema: SchemaResult,
     profile: ProfileReport,
     numeric_impute_strategy: str = "median",
+    cap_outliers: bool = False,
 ) -> tuple[pd.DataFrame, CleaningReport]:
     if numeric_impute_strategy not in NUMERIC_IMPUTE_STRATEGIES:
         raise ValueError(f"numeric_impute_strategy must be one of {NUMERIC_IMPUTE_STRATEGIES}")
 
     out = df.copy()
-    report = CleaningReport(numeric_impute_strategy=numeric_impute_strategy)
+    report = CleaningReport(numeric_impute_strategy=numeric_impute_strategy, outlier_capping_applied=cap_outliers)
 
     for col in schema.numeric_cols:
         if col not in out.columns:
@@ -57,6 +71,15 @@ def clean_dataframe(
                 fill_value = 0.0
             out[col] = out[col].fillna(fill_value)
             report.imputed_numeric[col] = fill_value
+
+        if cap_outliers:
+            bounds = _iqr_bounds(out[col])
+            if bounds is not None:
+                lower, upper = bounds
+                n_capped = int(((out[col] < lower) | (out[col] > upper)).sum())
+                if n_capped > 0:
+                    out[col] = out[col].clip(lower=lower, upper=upper)
+                    report.outlier_capped[col] = (lower, upper)
 
         num_profile = profile.numeric_profiles.get(col)
         if num_profile is not None and num_profile.is_skewed and (out[col] >= 0).all():

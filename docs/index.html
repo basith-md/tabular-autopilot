@@ -173,48 +173,126 @@
         </div>
 
         <div id="settings-toggle" class="settings-toggle">
-          <span>⚙ Advanced settings — test split, row cap, imputation, which models to compare</span>
+          <span>⚙ Configure the pipeline — grouped by the stage each setting affects</span>
           <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         </div>
         <div id="settings-panel" class="settings-panel">
-          <div class="settings-row">
-            <label for="test-size">Test set size</label>
-            <input type="range" id="test-size" min="10" max="40" step="5" value="20">
-            <span class="value" id="test-size-value">20%</span>
-          </div>
-          <div class="settings-row">
-            <label for="max-rows">Max rows analyzed in-browser</label>
-            <input type="range" id="max-rows" min="1000" max="10000" step="500" value="5000">
-            <span class="value" id="max-rows-value">5,000</span>
+
+          <div class="settings-section">
+            <h4 class="settings-section-title">1 &middot; Data &amp; cleaning</h4>
+            <div class="settings-row">
+              <label for="test-size">Test set size</label>
+              <input type="range" id="test-size" min="10" max="40" step="5" value="20">
+              <span class="value" id="test-size-value">20%</span>
+            </div>
+            <div class="settings-row">
+              <label for="max-rows">Max rows analyzed in-browser</label>
+              <input type="range" id="max-rows" min="1000" max="10000" step="500" value="5000">
+              <span class="value" id="max-rows-value">5,000</span>
+            </div>
+            <div class="settings-group-label">Numeric missing-value strategy</div>
+            <div class="radio-row">
+              <label><input type="radio" name="impute" value="median" checked> Median</label>
+              <label><input type="radio" name="impute" value="mean"> Mean</label>
+            </div>
+            <div class="checkbox-row">
+              <label><input type="checkbox" id="cap-outliers"> Cap outliers at IQR fences</label>
+            </div>
           </div>
 
-          <div class="settings-group-label">Numeric missing-value strategy</div>
-          <div class="radio-row">
-            <label><input type="radio" name="impute" value="median" checked> Median</label>
-            <label><input type="radio" name="impute" value="mean"> Mean</label>
+          <div class="settings-section">
+            <h4 class="settings-section-title">2 &middot; Feature engineering</h4>
+            <div class="checkbox-row">
+              <label><input type="checkbox" id="vectorize-text" checked> TF-IDF vectorize free-text columns</label>
+              <label><input type="checkbox" id="feature-selection" checked> Automatic feature selection</label>
+            </div>
           </div>
 
-          <div class="settings-group-label">Models to compare</div>
-          <div class="checkbox-row" id="model-checkboxes">
-            <label><input type="checkbox" value="Linear Regression" checked> Linear Regression <span class="tag">regression</span></label>
-            <label><input type="checkbox" value="Ridge (CV)" checked> Ridge (CV) <span class="tag">regression</span></label>
-            <label><input type="checkbox" value="Lasso (CV)" checked> Lasso (CV) <span class="tag">regression</span></label>
-            <label><input type="checkbox" value="Logistic Regression" checked> Logistic Regression <span class="tag">classification</span></label>
-            <label><input type="checkbox" value="Random Forest" checked> Random Forest <span class="tag">both</span></label>
-            <label><input type="checkbox" value="Gradient Boosting" checked> Gradient Boosting <span class="tag">both</span></label>
+          <div class="settings-section">
+            <h4 class="settings-section-title">3 &middot; Class balance <span class="settings-section-note">(classification targets)</span></h4>
+            <div class="checkbox-row">
+              <label><input type="checkbox" id="handle-imbalance" checked> Balance class weighting for imbalanced targets</label>
+            </div>
           </div>
 
-          <div class="settings-group-label">Modeling rigor</div>
-          <div class="checkbox-row">
-            <label><input type="checkbox" id="handle-imbalance" checked> Balance class weighting for imbalanced targets</label>
-            <label><input type="checkbox" id="vectorize-text" checked> TF-IDF vectorize free-text columns</label>
-            <label><input type="checkbox" id="feature-selection" checked> Automatic feature selection</label>
-            <label><input type="checkbox" id="use-cv"> Use k-fold cross-validation (slower)</label>
+          <div class="settings-section">
+            <h4 class="settings-section-title">4 &middot; Models &amp; hyperparameters</h4>
+            <p class="settings-section-note">Check a model to reveal its own tuning knobs below.</p>
+            <div class="checkbox-row" id="model-checkboxes">
+              <label><input type="checkbox" value="Linear Regression" checked> Linear Regression <span class="tag">regression</span></label>
+              <label><input type="checkbox" value="Ridge (CV)" checked> Ridge (CV) <span class="tag">regression</span></label>
+              <label><input type="checkbox" value="Lasso (CV)" checked> Lasso (CV) <span class="tag">regression</span></label>
+              <label><input type="checkbox" value="Logistic Regression" checked> Logistic Regression <span class="tag">classification</span></label>
+              <label><input type="checkbox" value="Random Forest" checked> Random Forest <span class="tag">both</span></label>
+              <label><input type="checkbox" value="Gradient Boosting" checked> Gradient Boosting <span class="tag">both</span></label>
+            </div>
+
+            <label class="hp-search-toggle"><input type="checkbox" id="hyperparameter-search"> Grid-search each model's key hyperparameter (slower — 3-fold, centered on the values below)</label>
+
+            <div class="model-hp-panel" data-for-model="Ridge (CV)">
+              <div class="model-hp-title">Ridge (CV) — regularization search range</div>
+              <div class="dual-input-row">
+                <label for="ridge-alpha-min">Alpha min</label>
+                <input type="number" id="ridge-alpha-min" value="0.001" step="0.001" min="0.000001">
+                <label for="ridge-alpha-max">Alpha max</label>
+                <input type="number" id="ridge-alpha-max" value="1000" step="1" min="0.001">
+              </div>
+            </div>
+            <div class="model-hp-panel" data-for-model="Lasso (CV)">
+              <div class="model-hp-title">Lasso (CV) — regularization search range</div>
+              <div class="dual-input-row">
+                <label for="lasso-alpha-min">Alpha min</label>
+                <input type="number" id="lasso-alpha-min" value="0.001" step="0.001" min="0.000001">
+                <label for="lasso-alpha-max">Alpha max</label>
+                <input type="number" id="lasso-alpha-max" value="100" step="1" min="0.001">
+              </div>
+            </div>
+            <div class="model-hp-panel" data-for-model="Logistic Regression">
+              <div class="model-hp-title">Logistic Regression</div>
+              <div class="settings-row">
+                <label for="logreg-c">Inverse regularization strength (C)</label>
+                <input type="range" id="logreg-c" min="0.01" max="10" step="0.01" value="1">
+                <span class="value" id="logreg-c-value">1.00</span>
+              </div>
+            </div>
+            <div class="model-hp-panel" data-for-model="Random Forest">
+              <div class="model-hp-title">Random Forest</div>
+              <div class="settings-row">
+                <label for="rf-n-estimators">Number of trees</label>
+                <input type="range" id="rf-n-estimators" min="50" max="500" step="50" value="200">
+                <span class="value" id="rf-n-estimators-value">200</span>
+              </div>
+              <div class="settings-row">
+                <label for="rf-max-depth">Max depth</label>
+                <input type="range" id="rf-max-depth" min="0" max="24" step="4" value="0">
+                <span class="value" id="rf-max-depth-value">unlimited</span>
+              </div>
+            </div>
+            <div class="model-hp-panel" data-for-model="Gradient Boosting">
+              <div class="model-hp-title">Gradient Boosting</div>
+              <div class="settings-row">
+                <label for="gb-learning-rate">Learning rate</label>
+                <input type="range" id="gb-learning-rate" min="0.01" max="0.5" step="0.01" value="0.1">
+                <span class="value" id="gb-learning-rate-value">0.10</span>
+              </div>
+              <div class="settings-row">
+                <label for="gb-max-iter">Boosting rounds</label>
+                <input type="range" id="gb-max-iter" min="20" max="300" step="10" value="100">
+                <span class="value" id="gb-max-iter-value">100</span>
+              </div>
+            </div>
           </div>
-          <div class="settings-row" id="cv-folds-row" style="display:none;">
-            <label for="cv-folds">Cross-validation folds</label>
-            <input type="range" id="cv-folds" min="2" max="10" step="1" value="5">
-            <span class="value" id="cv-folds-value">5</span>
+
+          <div class="settings-section">
+            <h4 class="settings-section-title">5 &middot; Evaluation strategy</h4>
+            <div class="checkbox-row">
+              <label><input type="checkbox" id="use-cv"> Use k-fold cross-validation (slower)</label>
+            </div>
+            <div class="settings-row" id="cv-folds-row" style="display:none;">
+              <label for="cv-folds">Cross-validation folds</label>
+              <input type="range" id="cv-folds" min="2" max="10" step="1" value="5">
+              <span class="value" id="cv-folds-value">5</span>
+            </div>
           </div>
         </div>
 

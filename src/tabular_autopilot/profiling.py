@@ -7,7 +7,7 @@ module observes rather than hardcoded per-dataset.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -16,6 +16,14 @@ from tabular_autopilot.schema import SchemaResult
 SKEW_THRESHOLD = 1.0
 OUTLIER_IQR_MULT = 1.5
 IMBALANCE_RATIO_THRESHOLD = 1.5  # majority:minority above this counts as "imbalanced"
+REDUNDANCY_CORR_THRESHOLD = 0.9  # |r| at or above this is flagged as redundant, independent of which model wins
+
+
+@dataclass
+class RedundantPair:
+    col_a: str
+    col_b: str
+    correlation: float
 
 
 @dataclass
@@ -50,6 +58,7 @@ class ProfileReport:
     categorical_top_values: dict[str, dict[str, int]]
     duplicate_rows: int
     class_balance: ClassBalance | None = None
+    redundant_pairs: list[RedundantPair] = field(default_factory=list)
 
 
 def _compute_class_balance(df: pd.DataFrame, schema: SchemaResult) -> ClassBalance | None:
@@ -67,6 +76,21 @@ def _compute_class_balance(df: pd.DataFrame, schema: SchemaResult) -> ClassBalan
         imbalance_ratio=ratio,
         is_imbalanced=ratio >= IMBALANCE_RATIO_THRESHOLD,
     )
+
+
+def _compute_redundant_pairs(df: pd.DataFrame, numeric_cols: list[str]) -> list[RedundantPair]:
+    cols = [c for c in dict.fromkeys(numeric_cols) if c in df.columns]
+    if len(cols) < 2:
+        return []
+    corr = df[cols].apply(pd.to_numeric, errors="coerce").corr(numeric_only=True)
+    pairs: list[RedundantPair] = []
+    for i, a in enumerate(cols):
+        for b in cols[i + 1 :]:
+            r = corr.loc[a, b]
+            if pd.notna(r) and abs(r) >= REDUNDANCY_CORR_THRESHOLD:
+                pairs.append(RedundantPair(col_a=a, col_b=b, correlation=float(r)))
+    pairs.sort(key=lambda p: abs(p.correlation), reverse=True)
+    return pairs
 
 
 def _iqr_outlier_count(series: pd.Series) -> int:
@@ -122,4 +146,5 @@ def profile_dataframe(df: pd.DataFrame, schema: SchemaResult) -> ProfileReport:
         categorical_top_values=categorical_top_values,
         duplicate_rows=int(df.duplicated().sum()),
         class_balance=_compute_class_balance(df, schema),
+        redundant_pairs=_compute_redundant_pairs(df, schema.numeric_cols),
     )

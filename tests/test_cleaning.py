@@ -42,3 +42,26 @@ def test_cleaning_drops_rows_with_missing_target(regression_df):
 
     assert cleaned["target"].isna().sum() == 0
     assert len(cleaned) == len(df) - 1
+
+
+def test_outlier_capping_is_off_by_default(outlier_df):
+    schema = infer_schema(outlier_df, target="target")
+    profile = profile_dataframe(outlier_df, schema)
+    cleaned, report = clean_dataframe(outlier_df, schema, profile)
+
+    assert report.outlier_capping_applied is False
+    assert report.outlier_capped == {}
+    assert cleaned["x1"].max() > 400  # untouched extreme values still present
+
+
+def test_outlier_capping_clips_extreme_values_when_enabled(outlier_df):
+    schema = infer_schema(outlier_df, target="target")
+    profile = profile_dataframe(outlier_df, schema)
+    cleaned, report = clean_dataframe(outlier_df, schema, profile, cap_outliers=True)
+
+    assert report.outlier_capping_applied is True
+    assert "x1" in report.outlier_capped
+    lower, upper = report.outlier_capped["x1"]
+    assert cleaned["x1"].max() <= upper
+    assert cleaned["x1"].min() >= lower
+    assert cleaned["x1"].max() < 400  # the injected extremes got capped

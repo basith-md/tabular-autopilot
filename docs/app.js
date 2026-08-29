@@ -105,7 +105,9 @@ def js_peek_columns(path):
         return json.dumps({"ok": False, "error": str(e)})
 
 def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy, model_names_json,
-               handle_imbalance, vectorize_text, feature_selection, cv_folds):
+               handle_imbalance, vectorize_text, feature_selection, cv_folds, cap_outliers,
+               ridge_alpha_min, ridge_alpha_max, lasso_alpha_min, lasso_alpha_max, logreg_c,
+               rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter, hyperparameter_search):
     try:
         from tabular_autopilot.pipeline import load_dataframe, run_pipeline
         from tabular_autopilot.report import render_html
@@ -130,6 +132,15 @@ def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy,
             vectorize_text=bool(vectorize_text),
             feature_selection=bool(feature_selection),
             cv_folds=int(cv_folds),
+            cap_outliers=bool(cap_outliers),
+            ridge_alpha_range=(float(ridge_alpha_min), float(ridge_alpha_max)),
+            lasso_alpha_range=(float(lasso_alpha_min), float(lasso_alpha_max)),
+            logreg_C=float(logreg_c),
+            rf_n_estimators=int(rf_n_estimators),
+            rf_max_depth=int(rf_max_depth) if int(rf_max_depth) > 0 else None,
+            gb_learning_rate=float(gb_learning_rate),
+            gb_max_iter=int(gb_max_iter),
+            hyperparameter_search=bool(hyperparameter_search),
         )
         html = render_html(result)
         return json.dumps({
@@ -196,6 +207,29 @@ cvFoldsInput.addEventListener("input", () => {
   cvFoldsValue.textContent = cvFoldsInput.value;
 });
 
+/* Model checkboxes reveal their own hyperparameter sub-panel, and only
+   that panel -- customization is scoped to the model it belongs to. */
+document.querySelectorAll("#model-checkboxes input[type=checkbox]").forEach((cb) => {
+  const panel = document.querySelector(`.model-hp-panel[data-for-model="${cb.value}"]`);
+  if (!panel) return;
+  const sync = () => panel.classList.toggle("open", cb.checked);
+  cb.addEventListener("change", sync);
+  sync();
+});
+
+function wireRangeDisplay(inputId, valueId, format = (v) => v) {
+  const input = document.getElementById(inputId);
+  const value = document.getElementById(valueId);
+  const render = () => { value.textContent = format(input.value); };
+  input.addEventListener("input", render);
+  render();
+}
+wireRangeDisplay("logreg-c", "logreg-c-value", (v) => Number(v).toFixed(2));
+wireRangeDisplay("rf-n-estimators", "rf-n-estimators-value");
+wireRangeDisplay("rf-max-depth", "rf-max-depth-value", (v) => (Number(v) === 0 ? "unlimited" : v));
+wireRangeDisplay("gb-learning-rate", "gb-learning-rate-value", (v) => Number(v).toFixed(2));
+wireRangeDisplay("gb-max-iter", "gb-max-iter-value");
+
 function currentSettings() {
   const modelCheckboxes = [...document.querySelectorAll("#model-checkboxes input:checked")];
   return {
@@ -207,6 +241,17 @@ function currentSettings() {
     vectorizeText: document.getElementById("vectorize-text").checked,
     featureSelection: document.getElementById("feature-selection").checked,
     cvFolds: useCvInput.checked ? Number(cvFoldsInput.value) : 0,
+    capOutliers: document.getElementById("cap-outliers").checked,
+    hyperparameterSearch: document.getElementById("hyperparameter-search").checked,
+    ridgeAlphaMin: Number(document.getElementById("ridge-alpha-min").value),
+    ridgeAlphaMax: Number(document.getElementById("ridge-alpha-max").value),
+    lassoAlphaMin: Number(document.getElementById("lasso-alpha-min").value),
+    lassoAlphaMax: Number(document.getElementById("lasso-alpha-max").value),
+    logregC: Number(document.getElementById("logreg-c").value),
+    rfNEstimators: Number(document.getElementById("rf-n-estimators").value),
+    rfMaxDepth: Number(document.getElementById("rf-max-depth").value),
+    gbLearningRate: Number(document.getElementById("gb-learning-rate").value),
+    gbMaxIter: Number(document.getElementById("gb-max-iter").value),
   };
 }
 
@@ -351,7 +396,18 @@ async function runAnalysis(path, target, displayName) {
       settings.handleImbalance,
       settings.vectorizeText,
       settings.featureSelection,
-      settings.cvFolds
+      settings.cvFolds,
+      settings.capOutliers,
+      settings.ridgeAlphaMin,
+      settings.ridgeAlphaMax,
+      settings.lassoAlphaMin,
+      settings.lassoAlphaMax,
+      settings.logregC,
+      settings.rfNEstimators,
+      settings.rfMaxDepth,
+      settings.gbLearningRate,
+      settings.gbMaxIter,
+      settings.hyperparameterSearch
     );
     const parsed = JSON.parse(raw);
 

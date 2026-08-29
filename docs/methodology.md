@@ -21,11 +21,12 @@ A `target` role is assigned to whichever column the caller names, regardless of 
 
 ## 2. Profiling (`profiling.py`)
 
-For every numeric column: mean/std/median, skewness, and IQR-based outlier count. For every categorical column: top-10 value counts. Missingness and duplicate-row counts are computed dataset-wide. This report is what drives the cleaning decisions in the next stage — nothing here is dataset-specific.
+For every numeric column: mean/std/median, skewness, and IQR-based outlier count. For every categorical column: top-10 value counts. Missingness and duplicate-row counts are computed dataset-wide. Every numeric-column pair with |Pearson r| ≥ 0.9 is also flagged as a **redundant pair** — independent of which model ends up winning, two columns that move almost interchangeably (e.g. `total_bedrooms` and `households` in the California Housing example) are worth knowing about before modeling even starts. This report is what drives the cleaning decisions in the next stage — nothing here is dataset-specific.
 
 ## 3. Cleaning (`cleaning.py`)
 
 - **Numeric**: median imputation for missing values by default (mean is a configurable alternative — median is more robust to outliers, which is why it's the default rather than the more commonly-taught mean). Columns flagged as skewed by the profiler (`|skew| ≥ 1`) and non-negative get a `log1p` companion column, so the report can show before/after distributions without destroying the original scale.
+- **Outlier capping** *(opt-in, off by default)*: when enabled, numeric values are clipped to the IQR fence (`Q1 - 1.5×IQR`, `Q3 + 1.5×IQR`) instead of just being counted. Off by default because capping changes the data — it's a deliberate choice, not a silent default.
 - **Categorical**: mode imputation; falls back to an explicit `"Unknown"` category if a column is entirely missing.
 - **Target**: rows with a missing target are dropped (nothing to learn from or evaluate against).
 
@@ -34,8 +35,9 @@ For every numeric column: mean/std/median, skewness, and IQR-based outlier count
 - `categorical_low` → one-hot encoding.
 - `categorical_high` → frequency encoding (avoids a one-hot explosion for things like postcodes or ticket numbers).
 - `datetime` → expanded into `year`, `month`, `day`, `dayofweek`, `is_weekend`, plus cyclical `sin`/`cos` encodings of month and day-of-week (so "December" and "January" are recognized as adjacent). The raw datetime column is then dropped — models don't take raw timestamps.
-- **Geospatial pair** (lat+lon both detected) → KMeans into 8 spatial clusters, plus a distance-from-point-to-its-cluster-centroid feature.
+- **Geospatial pair** (lat+lon both detected) → KMeans into 8 spatial clusters, plus a distance-from-point-to-its-cluster-centroid feature. The report's geospatial chart plots the point cloud at an equal aspect ratio (so the shape reads correctly instead of stretching) with two panels — one colored by the target, one colored by the `geo_cluster` id — so the chart shows what the clustering step actually did, not just the raw target again.
 - `identifier` / `constant` / `text` → dropped from the feature matrix. They aren't useful (or are out of scope — see below) as model input.
+- **Feature separability snapshot**: once a target is present, a 2D PCA projection of every engineered feature is plotted, colored by target/class — a cheap "does this data separate at all" visual before committing to any one model, most useful once TF-IDF has added dozens of columns.
 
 ## 5. Modeling (`modeling.py`)
 
@@ -106,15 +108,23 @@ After feature engineering (and before modeling), near-zero-variance columns are 
 
 Off by default (it multiplies runtime by the fold count, a real cost in the browser demo specifically). When enabled, each candidate model's headline metrics become k-fold cross-validation means over the full dataset instead of a single train/test split's numbers. Diagnostics that need one concrete fitted model — the confusion matrix, permutation importance, and the illustrative tree — still come from a single held-out split, refit after the winner is chosen; the report is explicit about which numbers come from which source so the two aren't conflated.
 
+### 5j. Configurable model hyperparameters
+
+Each candidate exposes the one knob a practitioner would reach for first, all defaulting to today's fixed values so nothing changes unless touched: **Ridge (CV)** and **Lasso (CV)** take an alpha search range (they already CV-tune within it internally — the *chosen* alpha is always reported, not just the range); **Logistic Regression** takes its inverse regularization strength `C`; **Random Forest** takes tree count and max depth; **Gradient Boosting** takes learning rate and boosting-round count. Linear Regression has no meaningful knob and is left alone.
+
+### 5k. Optional hyperparameter search
+
+Off by default. When enabled, Random Forest, Gradient Boosting, and Logistic Regression are each wrapped in a small 3-fold `GridSearchCV` over a 2-3 value grid centered on the configured knob above (e.g. Random Forest searches `{n_estimators/2, n_estimators, n_estimators×2} × {max_depth, 8, 16}`), and the winning combination is reported alongside the metrics. Ridge/Lasso are skipped here since `RidgeCV`/`LassoCV` already search their own alpha range by construction. Search is automatically disabled whenever cross-validation (5i) is also on — nesting a grid search inside k-fold CV multiplies the fit count by both the fold count *and* the grid size, which is too slow for the in-browser demo specifically.
+
 ### Known gaps / roadmap
 
 Deliberately out of scope for v0.1 (flagged here rather than silently missing):
 
 - **Formal hypothesis/association tests** beyond regression-coefficient significance — no chi-square test of independence, ANOVA, Shapiro-Wilk normality test, or non-parametric tests (Wilcoxon/Mann-Whitney). Normality is currently assessed only visually (Q-Q/residual plots).
-- **Unsupervised methods** — no PCA/dimensionality reduction, no standalone clustering report (KMeans is used internally only for geospatial features, not exposed as a general-purpose EDA step).
+- **Standalone clustering as a general EDA step** — KMeans is used for geospatial features and PCA for the feature-separability snapshot (5j in feature engineering), but there's no general-purpose "cluster this dataset and show me the segments" report independent of geography or modeling.
 - **True ARIMA/SARIMA modeling** — the current forecast uses Exponential Smoothing rather than `statsmodels`' ARIMA/SARIMAX with formal order selection; there's no seasonal decomposition or seasonal ARIMA for multi-seasonality data.
 - **Interrupted time series / intervention analysis** — detecting a level-shift around a known event date (e.g., a policy change or product launch) is a distinct, valuable technique that was not automated here.
 - **Target/mean encoding** for high-cardinality categoricals — frequency encoding is used instead; target encoding needs careful out-of-fold computation to avoid leakage that wasn't judged worth the complexity yet.
-- **Hyperparameter tuning** (GridSearchCV/RandomizedSearchCV) — Ridge and Lasso already CV-tune their own regularization strength internally, but Random Forest and Gradient Boosting run with fixed defaults rather than a tuned search.
+- **Exhaustive hyperparameter tuning** — the grid search in 5k covers one knob per model with a handful of values; it isn't a full `RandomizedSearchCV`/Bayesian-optimization sweep over every hyperparameter.
 
 These are natural v0.2 candidates and are listed here rather than glossed over, since knowing what a tool *doesn't* do is as important as knowing what it does.

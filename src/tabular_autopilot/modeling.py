@@ -56,7 +56,7 @@ from sklearn.metrics import (
     r2_score,
     roc_auc_score,
 )
-from sklearn.model_selection import cross_validate, train_test_split
+from sklearn.model_selection import GridSearchCV, cross_validate, train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -118,6 +118,8 @@ class ModelingResult:
     n_features_before_selection: int = 0
     n_features_after_selection: int = 0
     cv_folds: int = 0
+    hyperparameter_search_applied: bool = False
+    best_hyperparameters: dict[str, object] = field(default_factory=dict)
 
 
 def _compute_vif(X: pd.DataFrame) -> pd.Series:
@@ -206,30 +208,119 @@ def _fit_logit_baseline(X: pd.DataFrame, y: pd.Series) -> BaselineResult:
     )
 
 
-def _regression_candidates() -> dict[str, object]:
+def _regression_candidates(
+    ridge_alpha_range: tuple[float, float] = (1e-3, 1e3),
+    lasso_alpha_range: tuple[float, float] = (1e-3, 1e2),
+    rf_n_estimators: int = N_ESTIMATORS,
+    rf_max_depth: int | None = None,
+    gb_learning_rate: float = 0.1,
+    gb_max_iter: int = 100,
+) -> dict[str, object]:
+    ridge_lo, ridge_hi = ridge_alpha_range
+    lasso_lo, lasso_hi = lasso_alpha_range
     return {
         "Linear Regression": make_pipeline(StandardScaler(), LinearRegression()),
-        "Ridge (CV)": make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 25))),
-        "Lasso (CV)": make_pipeline(
-            StandardScaler(), LassoCV(alphas=np.logspace(-3, 2, 25), max_iter=20000, random_state=RANDOM_STATE)
+        "Ridge (CV)": make_pipeline(
+            StandardScaler(), RidgeCV(alphas=np.logspace(np.log10(ridge_lo), np.log10(ridge_hi), 25))
         ),
-        "Random Forest": RandomForestRegressor(n_estimators=N_ESTIMATORS, random_state=RANDOM_STATE, n_jobs=-1),
-        "Gradient Boosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+        "Lasso (CV)": make_pipeline(
+            StandardScaler(),
+            LassoCV(
+                alphas=np.logspace(np.log10(lasso_lo), np.log10(lasso_hi), 25),
+                max_iter=20000,
+                random_state=RANDOM_STATE,
+            ),
+        ),
+        "Random Forest": RandomForestRegressor(
+            n_estimators=rf_n_estimators, max_depth=rf_max_depth, random_state=RANDOM_STATE, n_jobs=-1
+        ),
+        "Gradient Boosting": HistGradientBoostingRegressor(
+            learning_rate=gb_learning_rate, max_iter=gb_max_iter, random_state=RANDOM_STATE
+        ),
     }
 
 
-def _classification_candidates(class_weight: str | None = None) -> dict[str, object]:
+def _classification_candidates(
+    class_weight: str | None = None,
+    logreg_C: float = 1.0,
+    rf_n_estimators: int = N_ESTIMATORS,
+    rf_max_depth: int | None = None,
+    gb_learning_rate: float = 0.1,
+    gb_max_iter: int = 100,
+) -> dict[str, object]:
     return {
         "Logistic Regression": make_pipeline(
-            StandardScaler(), LogisticRegression(max_iter=2000, class_weight=class_weight)
+            StandardScaler(), LogisticRegression(max_iter=2000, class_weight=class_weight, C=logreg_C)
         ),
         "Random Forest": RandomForestClassifier(
-            n_estimators=N_ESTIMATORS, random_state=RANDOM_STATE, n_jobs=-1, class_weight=class_weight
+            n_estimators=rf_n_estimators,
+            max_depth=rf_max_depth,
+            random_state=RANDOM_STATE,
+            n_jobs=-1,
+            class_weight=class_weight,
         ),
         # HistGradientBoostingClassifier has no class_weight constructor arg;
         # imbalance is instead handled via sample_weight at fit time (below).
-        "Gradient Boosting": HistGradientBoostingClassifier(random_state=RANDOM_STATE),
+        "Gradient Boosting": HistGradientBoostingClassifier(
+            learning_rate=gb_learning_rate, max_iter=gb_max_iter, random_state=RANDOM_STATE
+        ),
     }
+
+
+def _param_grid_for(
+    name: str,
+    rf_n_estimators: int,
+    rf_max_depth: int | None,
+    gb_learning_rate: float,
+    gb_max_iter: int,
+    logreg_C: float,
+) -> dict[str, list] | None:
+    """The one grid-search-able knob per model -- the lever a practitioner
+    reaches for first -- centered on whatever value was configured, so
+    turning search on refines around the user's own setting rather than a
+    fixed, disconnected default grid."""
+    if name == "Random Forest":
+        return {
+            "n_estimators": list(dict.fromkeys([max(50, rf_n_estimators // 2), rf_n_estimators, rf_n_estimators * 2])),
+            "max_depth": list(dict.fromkeys([rf_max_depth, 8, 16])),
+        }
+    if name == "Gradient Boosting":
+        return {
+            "learning_rate": list(dict.fromkeys([0.03, gb_learning_rate, 0.3])),
+            "max_iter": list(dict.fromkeys([50, gb_max_iter, 200])),
+        }
+    if name == "Logistic Regression":
+        return {"logisticregression__C": list(dict.fromkeys([0.1, logreg_C, 10.0]))}
+    return None
+
+
+def _extract_fitted_hyperparameters(name: str, fitted_model: object) -> dict[str, object]:
+    """What the winning model actually ran with -- the alpha RidgeCV/LassoCV
+    picked via their own internal search (always), or the grid-search winner
+    for the other models (only when search was enabled)."""
+    is_grid = isinstance(fitted_model, GridSearchCV)
+    try:
+        if name == "Ridge (CV)":
+            return {"alpha": round(float(fitted_model.named_steps["ridgecv"].alpha_), 6)}
+        if name == "Lasso (CV)":
+            return {"alpha": round(float(fitted_model.named_steps["lassocv"].alpha_), 6)}
+        if name == "Logistic Regression":
+            if is_grid:
+                return {"C": float(fitted_model.best_params_["logisticregression__C"])}
+            return {"C": float(fitted_model.named_steps["logisticregression"].C)}
+        if name == "Random Forest":
+            if is_grid:
+                bp = fitted_model.best_params_
+                return {"n_estimators": bp["n_estimators"], "max_depth": bp["max_depth"]}
+            return {"n_estimators": fitted_model.n_estimators, "max_depth": fitted_model.max_depth}
+        if name == "Gradient Boosting":
+            if is_grid:
+                bp = fitted_model.best_params_
+                return {"learning_rate": bp["learning_rate"], "max_iter": bp["max_iter"]}
+            return {"learning_rate": fitted_model.learning_rate, "max_iter": fitted_model.max_iter}
+    except (AttributeError, KeyError):
+        return {}
+    return {}
 
 
 def available_model_names() -> list[str]:
@@ -317,6 +408,14 @@ def run_modeling(
     handle_imbalance: bool = True,
     feature_selection: bool = True,
     cv_folds: int = 0,
+    ridge_alpha_range: tuple[float, float] = (1e-3, 1e3),
+    lasso_alpha_range: tuple[float, float] = (1e-3, 1e2),
+    logreg_C: float = 1.0,
+    rf_n_estimators: int = N_ESTIMATORS,
+    rf_max_depth: int | None = None,
+    gb_learning_rate: float = 0.1,
+    gb_max_iter: int = 100,
+    hyperparameter_search: bool = False,
 ) -> ModelingResult:
     X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     y_raw = df[target]
@@ -373,7 +472,12 @@ def run_modeling(
 
     if task == "regression":
         result.baseline = _fit_ols_baseline(X_train, y_train)
-        candidates = _filter_candidates(_regression_candidates(), model_names)
+        candidates = _filter_candidates(
+            _regression_candidates(
+                ridge_alpha_range, lasso_alpha_range, rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter
+            ),
+            model_names,
+        )
         primary_metric = "R2"
     else:
         if n_classes == 2:
@@ -382,8 +486,30 @@ def run_modeling(
             result.baseline = BaselineResult(
                 kind="skipped", note="Interpretable baseline is limited to binary targets; skipped for multiclass."
             )
-        candidates = _filter_candidates(_classification_candidates(class_weight=class_weight), model_names)
+        classification_candidates = _classification_candidates(
+            class_weight, logreg_C, rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter
+        )
+        candidates = _filter_candidates(classification_candidates, model_names)
         primary_metric = "F1_weighted"
+
+    # Nested CV (grid search inside k-fold CV) multiplies runtime by the grid
+    # size on top of the fold count -- too slow for the in-browser demo, so
+    # search only applies to the single-split path.
+    do_grid_search = bool(hyperparameter_search) and not use_cv
+    if do_grid_search:
+        candidates = {
+            name: (
+                GridSearchCV(model, grid, cv=3)
+                if (
+                    grid := _param_grid_for(
+                        name, rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter, logreg_C
+                    )
+                )
+                is not None
+                else model
+            )
+            for name, model in candidates.items()
+        }
 
     scoring_spec = _cv_scoring_spec(task, n_classes)
     comparison: dict[str, dict[str, float]] = {}
@@ -432,6 +558,9 @@ def run_modeling(
             {"sample_weight": sample_weight} if (sample_weight is not None and best_name == "Gradient Boosting") else {}
         )
         best_model.fit(X_train, y_train, **best_fit_kwargs)
+
+    result.hyperparameter_search_applied = do_grid_search
+    result.best_hyperparameters = _extract_fitted_hyperparameters(best_name, best_model)
 
     if task == "classification":
         best_preds = best_model.predict(X_test)

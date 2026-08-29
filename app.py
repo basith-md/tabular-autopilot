@@ -82,18 +82,61 @@ with st.sidebar:
         target_choice = st.selectbox("Target column", options, index=idx)
         target = None if target_choice.startswith("(none") else target_choice
 
-    st.header("3. Advanced settings")
-    with st.expander("Test split, imputation, models, imbalance, features", expanded=False):
+    st.header("3. Configure the pipeline")
+    st.caption(
+        "Grouped by the stage of the pipeline each setting affects — everything defaults to "
+        "sensible values, so you only need to open a section if you want to change it."
+    )
+
+    with st.expander("Data & cleaning", expanded=False):
         test_size_pct = st.slider("Test set size (%)", 10, 40, 20, step=5)
         impute_strategy = st.radio("Numeric missing-value strategy", ["median", "mean"], horizontal=True)
+        cap_outliers = st.checkbox(
+            "Cap outliers at IQR fences",
+            value=False,
+            help="Clips extreme numeric values to the IQR fence instead of just counting them. "
+            "Off by default since it changes the data.",
+        )
+
+    with st.expander("Feature engineering", expanded=False):
+        vectorize_text = st.checkbox("TF-IDF vectorize free-text columns (instead of dropping them)", value=True)
+        feature_selection = st.checkbox(
+            "Automatic feature selection (near-zero-variance + top-50 SelectKBest)", value=True
+        )
+
+    with st.expander("Class balance (classification targets)", expanded=False):
+        handle_imbalance = st.checkbox("Balance class weighting for imbalanced targets", value=True)
+
+    with st.expander("Models to compare & hyperparameters", expanded=False):
         selected_models = st.multiselect(
             "Models to compare (irrelevant ones for the detected task are ignored)",
             available_model_names(),
             default=available_model_names(),
         )
-        handle_imbalance = st.checkbox("Balance class weighting for imbalanced targets", value=True)
-        vectorize_text = st.checkbox("TF-IDF vectorize free-text columns (instead of dropping them)", value=True)
-        feature_selection = st.checkbox("Automatic feature selection", value=True)
+        hyperparameter_search = st.checkbox(
+            "Grid-search each model's key hyperparameter",
+            value=False,
+            help="Runs a small 3-fold search centered on the values below instead of using them "
+            "directly. Disabled together with cross-validation, to avoid nested CV.",
+        )
+        st.markdown("**Ridge (CV) / Lasso (CV)** — regularization search range")
+        rc1, rc2 = st.columns(2)
+        ridge_alpha_min = rc1.number_input("Ridge alpha min", value=1e-3, format="%.4f", min_value=1e-6)
+        ridge_alpha_max = rc2.number_input("Ridge alpha max", value=1e3, format="%.1f", min_value=ridge_alpha_min)
+        lc1, lc2 = st.columns(2)
+        lasso_alpha_min = lc1.number_input("Lasso alpha min", value=1e-3, format="%.4f", min_value=1e-6)
+        lasso_alpha_max = lc2.number_input("Lasso alpha max", value=1e2, format="%.1f", min_value=lasso_alpha_min)
+        st.markdown("**Logistic Regression**")
+        logreg_C = st.slider("Inverse regularization strength (C)", 0.01, 10.0, 1.0)
+        st.markdown("**Random Forest**")
+        rf_n_estimators = st.slider("Number of trees", 50, 500, 200, step=50)
+        rf_max_depth_choice = st.select_slider("Max depth", options=["unlimited", 4, 8, 12, 16, 24], value="unlimited")
+        rf_max_depth = None if rf_max_depth_choice == "unlimited" else rf_max_depth_choice
+        st.markdown("**Gradient Boosting**")
+        gb_learning_rate = st.slider("Learning rate", 0.01, 0.5, 0.1, step=0.01)
+        gb_max_iter = st.slider("Boosting rounds", 20, 300, 100, step=10)
+
+    with st.expander("Evaluation strategy", expanded=False):
         use_cv = st.checkbox("Use k-fold cross-validation instead of a single split (slower)", value=False)
         cv_folds = st.slider("CV folds", 2, 10, 5, disabled=not use_cv) if use_cv else 0
 
@@ -122,6 +165,15 @@ try:
             handle_imbalance=handle_imbalance,
             feature_selection=feature_selection,
             cv_folds=cv_folds,
+            cap_outliers=cap_outliers,
+            ridge_alpha_range=(ridge_alpha_min, ridge_alpha_max),
+            lasso_alpha_range=(lasso_alpha_min, lasso_alpha_max),
+            logreg_C=logreg_C,
+            rf_n_estimators=rf_n_estimators,
+            rf_max_depth=rf_max_depth,
+            gb_learning_rate=gb_learning_rate,
+            gb_max_iter=gb_max_iter,
+            hyperparameter_search=hyperparameter_search,
         )
 except Exception as exc:
     st.error(f"Analysis failed: {exc}")
@@ -180,6 +232,8 @@ with tabs[2]:
     _img(result.charts.get("numeric_distributions"))
     if result.cleaning.log_transformed:
         st.write("Log-transformed (right-skewed):", result.cleaning.log_transformed)
+    if result.cleaning.outlier_capping_applied:
+        st.write("Outliers capped at IQR fences:", list(result.cleaning.outlier_capped.keys()) or "none needed capping")
     if profile.numeric_profiles:
         st.dataframe(
             pd.DataFrame(
@@ -198,6 +252,14 @@ with tabs[3]:
     _img(result.charts.get("correlation_heatmap"))
     st.subheader("Target by category")
     _img(result.charts.get("target_by_category"))
+    if profile.redundant_pairs:
+        st.subheader("Redundant feature pairs (|r| ≥ 0.9)")
+        st.caption("These columns move almost interchangeably — worth dropping one regardless of the winning model.")
+        pairs_rows = [
+            {"Column A": p.col_a, "Column B": p.col_b, "Correlation": round(p.correlation, 3)}
+            for p in profile.redundant_pairs
+        ]
+        st.dataframe(pd.DataFrame(pairs_rows), width="stretch")
 
 with tabs[4]:
     st.subheader("Geospatial distribution")
@@ -214,6 +276,13 @@ with tabs[5]:
     st.write("Datetime expanded:", list(result.feature_engineering.datetime_expanded.keys()) or "none")
     st.write("Text columns TF-IDF vectorized:", list(result.feature_engineering.text_vectorized.keys()) or "none")
     st.write("Dropped (identifier/constant/text):", result.feature_engineering.dropped_columns or "none")
+    if result.charts.get("pca_scatter"):
+        st.subheader("Feature separability (PCA projection)")
+        st.caption(
+            "A 2D projection of every engineered feature, colored by target/class — a quick "
+            "visual for whether the data separates at all before modeling."
+        )
+        _img(result.charts.get("pca_scatter"))
 
 with tabs[6]:
     if result.modeling is None:
@@ -234,6 +303,10 @@ with tabs[6]:
         comp_df = pd.DataFrame(m.model_comparison).T
         st.dataframe(comp_df, width="stretch")
         st.markdown(f"**Best model:** `{m.best_model_name}`")
+        if m.best_hyperparameters:
+            search_note = " (found via grid search)" if m.hyperparameter_search_applied else ""
+            params = ", ".join(f"{k}={v}" for k, v in m.best_hyperparameters.items())
+            st.caption(f"Hyperparameters{search_note}: {params}")
         cols = st.columns(len(m.metrics))
         for c, (name, val) in zip(cols, m.metrics.items()):
             c.metric(name, f"{val:.4f}")

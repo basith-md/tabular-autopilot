@@ -68,7 +68,12 @@ def load_dataframe(path_or_buffer, filename: str | None = None) -> pd.DataFrame:
 
 
 def _build_charts(
-    cleaned_df: pd.DataFrame, schema: SchemaResult, profile: ProfileReport, modeling: ModelingResult | None
+    cleaned_df: pd.DataFrame,
+    featured_df: pd.DataFrame,
+    fe_report: FeatureEngineeringReport,
+    schema: SchemaResult,
+    profile: ProfileReport,
+    modeling: ModelingResult | None,
 ) -> dict[str, str | None]:
     charts: dict[str, str | None] = {}
     charts["missingness"] = viz.plot_missingness(cleaned_df, profile.missing_by_col)
@@ -87,12 +92,26 @@ def _build_charts(
         charts["target_by_category"] = None
 
     if schema.has_geo:
-        color_col = schema.target if schema.task == "regression" else None
+        geo_df = cleaned_df.copy()
+        if "geo_cluster" in featured_df.columns:
+            geo_df["geo_cluster"] = featured_df["geo_cluster"].to_numpy()
         charts["geo_scatter"] = viz.plot_geo_scatter(
-            cleaned_df, schema.geo_lat_col, schema.geo_lon_col, color_col
+            geo_df,
+            schema.geo_lat_col,
+            schema.geo_lon_col,
+            schema.target,
+            task=schema.task,
+            cluster_col="geo_cluster" if "geo_cluster" in geo_df.columns else None,
         )
     else:
         charts["geo_scatter"] = None
+
+    if modeling and schema.target and fe_report.final_feature_columns:
+        charts["pca_scatter"] = viz.plot_pca_scatter(
+            featured_df[fe_report.final_feature_columns], featured_df[schema.target], schema.task
+        )
+    else:
+        charts["pca_scatter"] = None
 
     if modeling and modeling.baseline and modeling.baseline.kind == "ols":
         charts["residuals_vs_fitted"] = viz.plot_residuals_vs_fitted(
@@ -149,10 +168,21 @@ def run_pipeline(
     handle_imbalance: bool = True,
     feature_selection: bool = True,
     cv_folds: int = 0,
+    cap_outliers: bool = False,
+    ridge_alpha_range: tuple[float, float] = (1e-3, 1e3),
+    lasso_alpha_range: tuple[float, float] = (1e-3, 1e2),
+    logreg_C: float = 1.0,
+    rf_n_estimators: int = 200,
+    rf_max_depth: int | None = None,
+    gb_learning_rate: float = 0.1,
+    gb_max_iter: int = 100,
+    hyperparameter_search: bool = False,
 ) -> AnalysisResult:
     schema = infer_schema(df, target=target)
     profile = profile_dataframe(df, schema)
-    cleaned_df, cleaning_report = clean_dataframe(df, schema, profile, numeric_impute_strategy)
+    cleaned_df, cleaning_report = clean_dataframe(
+        df, schema, profile, numeric_impute_strategy, cap_outliers=cap_outliers
+    )
     featured_df, fe_report = engineer_features(cleaned_df, schema, vectorize_text=vectorize_text)
 
     modeling_result = None
@@ -167,9 +197,17 @@ def run_pipeline(
             handle_imbalance=handle_imbalance,
             feature_selection=feature_selection,
             cv_folds=cv_folds,
+            ridge_alpha_range=ridge_alpha_range,
+            lasso_alpha_range=lasso_alpha_range,
+            logreg_C=logreg_C,
+            rf_n_estimators=rf_n_estimators,
+            rf_max_depth=rf_max_depth,
+            gb_learning_rate=gb_learning_rate,
+            gb_max_iter=gb_max_iter,
+            hyperparameter_search=hyperparameter_search,
         )
 
-    charts = _build_charts(cleaned_df, schema, profile, modeling_result)
+    charts = _build_charts(cleaned_df, featured_df, fe_report, schema, profile, modeling_result)
 
     ts_result = None
     if schema.target and schema.task == "regression" and schema.datetime_cols:

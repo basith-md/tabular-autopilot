@@ -120,3 +120,71 @@ def test_cross_validation_disabled_by_default(regression_df):
     result = run_modeling(featured, "target", fe.final_feature_columns, "regression")
 
     assert result.cv_folds == 0
+
+
+def test_ridge_alpha_range_bounds_the_chosen_alpha(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured,
+        "target",
+        fe.final_feature_columns,
+        "regression",
+        model_names=["Ridge (CV)"],
+        ridge_alpha_range=(1.0, 10.0),
+    )
+
+    assert result.best_model_name == "Ridge (CV)"
+    assert 1.0 <= result.best_hyperparameters["alpha"] <= 10.0
+
+
+def test_random_forest_hyperparameters_are_applied_and_reported(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured,
+        "target",
+        fe.final_feature_columns,
+        "regression",
+        model_names=["Random Forest"],
+        rf_n_estimators=37,
+        rf_max_depth=4,
+    )
+
+    assert result.best_model_name == "Random Forest"
+    assert result.best_hyperparameters == {"n_estimators": 37, "max_depth": 4}
+    assert not result.hyperparameter_search_applied
+
+
+def test_hyperparameter_search_finds_a_value_from_the_grid(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured,
+        "target",
+        fe.final_feature_columns,
+        "regression",
+        model_names=["Random Forest"],
+        rf_n_estimators=100,
+        rf_max_depth=None,
+        hyperparameter_search=True,
+    )
+
+    assert result.hyperparameter_search_applied
+    assert result.best_hyperparameters["n_estimators"] in (50, 100, 200)
+    assert result.best_hyperparameters["max_depth"] in (None, 8, 16)
+
+
+def test_hyperparameter_search_is_skipped_under_cross_validation(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured,
+        "target",
+        fe.final_feature_columns,
+        "regression",
+        model_names=["Random Forest"],
+        hyperparameter_search=True,
+        cv_folds=3,
+    )
+
+    # Nested CV (grid search inside k-fold CV) is deliberately disabled --
+    # the refit-on-single-split winner should carry the fixed defaults, not
+    # a grid search result.
+    assert not result.hyperparameter_search_applied

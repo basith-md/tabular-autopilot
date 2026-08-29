@@ -12,6 +12,7 @@ def test_pipeline_regression_end_to_end(regression_df):
     assert result.modeling.metrics["R2"] > 0.4
     assert result.charts["correlation_heatmap"] is not None
     assert result.charts["numeric_distributions"] is not None
+    assert result.charts["pca_scatter"] is not None
 
 
 def test_pipeline_classification_end_to_end(classification_df):
@@ -40,6 +41,34 @@ def test_pipeline_geospatial_dataset_produces_geo_chart(mixed_type_df):
     assert result.schema.has_geo
     assert result.charts["geo_scatter"] is not None
     assert "geo_cluster" in result.feature_engineering.geo_features_added
+
+
+def test_pipeline_outlier_capping_reaches_the_cleaning_report(outlier_df):
+    result = run_pipeline(outlier_df, target="target", dataset_name="outlier_demo", cap_outliers=True)
+
+    assert result.cleaning.outlier_capping_applied
+    assert "x1" in result.cleaning.outlier_capped
+
+
+def test_pipeline_redundant_pairs_reach_the_profile(redundant_pairs_df):
+    result = run_pipeline(redundant_pairs_df, target="target", dataset_name="redundancy_demo")
+
+    pairs = {frozenset((p.col_a, p.col_b)) for p in result.profile.redundant_pairs}
+    assert frozenset({"x1", "x1_twin"}) in pairs
+
+
+def test_pipeline_model_hyperparameters_reach_the_modeling_result(regression_df):
+    result = run_pipeline(
+        regression_df,
+        target="target",
+        dataset_name="hp_demo",
+        model_names=["Random Forest"],
+        rf_n_estimators=42,
+        rf_max_depth=6,
+    )
+
+    assert result.modeling.best_model_name == "Random Forest"
+    assert result.modeling.best_hyperparameters == {"n_estimators": 42, "max_depth": 6}
 
 
 def test_pipeline_triggers_timeseries_when_datetime_and_numeric_target_present():
