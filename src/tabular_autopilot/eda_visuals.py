@@ -244,6 +244,35 @@ def plot_pca_scatter(X: pd.DataFrame, y: pd.Series | None, task: str | None) -> 
     return _fig_to_data_uri(fig)
 
 
+def plot_cluster_scatter(df: pd.DataFrame, columns_used: list[str], labels: list[int]) -> str | None:
+    """The standalone-clustering result (clustering.py) projected to 2D via
+    PCA and colored by cluster id -- independent of any modeling target,
+    it's the general-purpose "what natural segments exist here" view."""
+    cols = [c for c in columns_used if c in df.columns]
+    if len(cols) < 2:
+        return None
+    X = df[cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    scaled = StandardScaler().fit_transform(X)
+    pca = PCA(n_components=2, random_state=42)
+    coords = pca.fit_transform(scaled)
+
+    fig, ax = plt.subplots(figsize=(6.2, 5.4))
+    labels_arr = np.asarray(labels)
+    for i, cluster_id in enumerate(sorted(set(labels_arr.tolist()))):
+        mask = labels_arr == cluster_id
+        ax.scatter(
+            coords[mask, 0], coords[mask, 1], s=12, alpha=0.7,
+            color=CATEGORICAL[i % len(CATEGORICAL)], label=f"segment {cluster_id}", edgecolors="none",
+        )
+    ax.legend(frameon=False, fontsize=8, loc="best")
+    var1, var2 = pca.explained_variance_ratio_[:2] * 100
+    ax.set_xlabel(f"PC1 ({var1:.0f}% of variance)")
+    ax.set_ylabel(f"PC2 ({var2:.0f}% of variance)")
+    ax.set_title("Segments found in the data (KMeans, PCA-projected)")
+    fig.tight_layout()
+    return _fig_to_data_uri(fig)
+
+
 def plot_residuals_vs_fitted(fitted: list[float], residuals: list[float]) -> str | None:
     if not fitted or not residuals:
         return None
@@ -300,6 +329,22 @@ def plot_time_series_trend(
         fc_x = pd.to_datetime(forecast_index)
         ax.plot(fc_x, forecast, color=CAT_ORANGE, linestyle="--", marker="o", markersize=3, label="forecast")
     ax.set_title("Time series: history and forecast")
+    ax.legend(frameon=False)
+    fig.autofmt_xdate()
+    return _fig_to_data_uri(fig)
+
+
+def plot_intervention(
+    history_dates: list[str], history_values: list[float], fitted: list[float], intervention_date: str
+) -> str | None:
+    if not history_dates:
+        return None
+    fig, ax = plt.subplots(figsize=(9, 4))
+    x = pd.to_datetime(history_dates)
+    ax.plot(x, history_values, color=CAT_BLUE, linewidth=1.2, alpha=0.55, label="observed")
+    ax.plot(x, fitted, color=CAT_ORANGE, linewidth=2, label="segmented fit (pre/post)")
+    ax.axvline(pd.to_datetime(intervention_date), color=CAT_RED, linestyle="--", linewidth=1.5, label="intervention")
+    ax.set_title("Interrupted time series: level & slope around the intervention")
     ax.legend(frameon=False)
     fig.autofmt_xdate()
     return _fig_to_data_uri(fig)

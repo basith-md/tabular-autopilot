@@ -1,3 +1,6 @@
+import numpy as np
+import pandas as pd
+
 from tabular_autopilot.cleaning import clean_dataframe
 from tabular_autopilot.feature_engineering import engineer_features
 from tabular_autopilot.profiling import profile_dataframe
@@ -71,3 +74,46 @@ def test_target_column_survives_untouched(regression_df):
     schema, cleaned = _cleaned(regression_df, "target")
     featured, _ = engineer_features(cleaned, schema)
     assert "target" in featured.columns
+
+
+def _high_cardinality_df():
+    rng = np.random.default_rng(9)
+    n = 200
+    codes = [f"C{i % 30}" for i in range(n)]
+    target = rng.normal(size=n)
+    return pd.DataFrame({"code": codes, "target": target})
+
+
+def test_high_cardinality_uses_frequency_encoding_by_default():
+    df = _high_cardinality_df()
+    schema, cleaned = _cleaned(df, "target")
+    assert "code" in schema.categorical_high_cols  # sanity check on the fixture's role inference
+
+    featured, report = engineer_features(cleaned, schema)
+
+    assert "code" in report.frequency_encoded
+    assert "code_freq" in featured.columns
+    assert "code" not in featured.columns
+    assert report.deferred_target_encoding == []
+
+
+def test_high_cardinality_target_encoding_is_deferred_to_modeling():
+    df = _high_cardinality_df()
+    schema, cleaned = _cleaned(df, "target")
+
+    featured, report = engineer_features(cleaned, schema, high_cardinality_encoding="target")
+
+    assert report.deferred_target_encoding == ["code"]
+    assert report.frequency_encoded == []
+    assert "code" in featured.columns  # left raw -- modeling.py encodes it after the train/test split
+    assert featured["code"].dtype == object
+
+
+def test_target_encoding_falls_back_to_frequency_without_a_target():
+    df = _high_cardinality_df()
+    schema, cleaned = _cleaned(df, target=None)
+
+    featured, report = engineer_features(cleaned, schema, high_cardinality_encoding="target")
+
+    assert report.deferred_target_encoding == []
+    assert "code" in report.frequency_encoded

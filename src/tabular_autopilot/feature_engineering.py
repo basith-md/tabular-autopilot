@@ -32,6 +32,9 @@ MAX_TEXT_FEATURES_PER_COL = 20
 MIN_ROWS_FOR_TEXT_VECTORIZATION = 20
 
 
+HIGH_CARDINALITY_ENCODINGS = ("frequency", "target")
+
+
 @dataclass
 class FeatureEngineeringReport:
     one_hot_encoded: list[str] = field(default_factory=list)
@@ -41,6 +44,7 @@ class FeatureEngineeringReport:
     text_vectorized: dict[str, list[str]] = field(default_factory=dict)
     dropped_columns: list[str] = field(default_factory=list)
     final_feature_columns: list[str] = field(default_factory=list)
+    deferred_target_encoding: list[str] = field(default_factory=list)
 
 
 def _expand_datetime(df: pd.DataFrame, col: str) -> list[str]:
@@ -102,8 +106,16 @@ def _vectorize_text(df: pd.DataFrame, col: str, max_features: int = MAX_TEXT_FEA
 
 
 def engineer_features(
-    df: pd.DataFrame, schema: SchemaResult, vectorize_text: bool = True
+    df: pd.DataFrame, schema: SchemaResult, vectorize_text: bool = True, high_cardinality_encoding: str = "frequency"
 ) -> tuple[pd.DataFrame, FeatureEngineeringReport]:
+    if high_cardinality_encoding not in HIGH_CARDINALITY_ENCODINGS:
+        raise ValueError(f"high_cardinality_encoding must be one of {HIGH_CARDINALITY_ENCODINGS}")
+    # Target encoding needs a train/test split (to stay leak-free), which
+    # doesn't exist yet at this generic, target-agnostic stage -- so it's
+    # only deferred to modeling.py when there's actually a target to encode
+    # against; otherwise frequency encoding (which needs no target) applies.
+    use_target_encoding = high_cardinality_encoding == "target" and schema.target is not None
+
     out = df.copy()
     report = FeatureEngineeringReport()
 
@@ -116,6 +128,9 @@ def engineer_features(
 
     for col in schema.categorical_high_cols:
         if col not in out.columns:
+            continue
+        if use_target_encoding:
+            report.deferred_target_encoding.append(col)
             continue
         freq = out[col].value_counts(normalize=True)
         out[f"{col}_freq"] = out[col].map(freq).fillna(0.0)

@@ -13,11 +13,23 @@ import pandas as pd
 
 from tabular_autopilot import eda_visuals as viz
 from tabular_autopilot.cleaning import CleaningReport, clean_dataframe
+from tabular_autopilot.clustering import ClusteringResult, run_clustering
 from tabular_autopilot.feature_engineering import FeatureEngineeringReport, engineer_features
+from tabular_autopilot.hypothesis_tests import (
+    HypothesisTestSuite,
+    anova_tests,
+    chi_square_tests,
+    mann_whitney_tests,
+)
 from tabular_autopilot.modeling import ModelingResult, run_modeling
 from tabular_autopilot.profiling import ProfileReport, profile_dataframe
 from tabular_autopilot.schema import SchemaResult, infer_schema
-from tabular_autopilot.timeseries import TimeSeriesResult, analyze_time_series
+from tabular_autopilot.timeseries import (
+    InterventionResult,
+    TimeSeriesResult,
+    analyze_intervention,
+    analyze_time_series,
+)
 
 
 @dataclass
@@ -31,6 +43,9 @@ class AnalysisResult:
     charts: dict[str, str | None]
     cleaned_df: pd.DataFrame
     timeseries: TimeSeriesResult | None = None
+    clustering: ClusteringResult | None = None
+    hypothesis_tests: HypothesisTestSuite | None = None
+    intervention: InterventionResult | None = None
 
 
 # Tried in order against CSVs of unknown provenance: real UTF-8 first (most
@@ -74,10 +89,16 @@ def _build_charts(
     schema: SchemaResult,
     profile: ProfileReport,
     modeling: ModelingResult | None,
+    clustering: ClusteringResult | None,
 ) -> dict[str, str | None]:
     charts: dict[str, str | None] = {}
     charts["missingness"] = viz.plot_missingness(cleaned_df, profile.missing_by_col)
     charts["numeric_distributions"] = viz.plot_numeric_distributions(cleaned_df, schema.numeric_cols)
+
+    if clustering:
+        charts["cluster_scatter"] = viz.plot_cluster_scatter(cleaned_df, clustering.columns_used, clustering.labels)
+    else:
+        charts["cluster_scatter"] = None
 
     corr_cols = list(schema.numeric_cols)
     if schema.target and schema.task == "regression":
@@ -146,15 +167,25 @@ def _build_charts(
     return charts
 
 
-def _build_timeseries_charts(ts: TimeSeriesResult | None) -> dict[str, str | None]:
+def _build_timeseries_charts(
+    ts: TimeSeriesResult | None, intervention: InterventionResult | None
+) -> dict[str, str | None]:
     if ts is None:
-        return {"ts_trend": None, "ts_acf_pacf": None}
-    return {
-        "ts_trend": viz.plot_time_series_trend(
-            ts.history_dates, ts.history_values, ts.forecast_index, ts.forecast
-        ),
-        "ts_acf_pacf": viz.plot_acf_pacf(ts.acf_values, ts.pacf_values),
-    }
+        charts = {"ts_trend": None, "ts_acf_pacf": None}
+    else:
+        charts = {
+            "ts_trend": viz.plot_time_series_trend(
+                ts.history_dates, ts.history_values, ts.forecast_index, ts.forecast
+            ),
+            "ts_acf_pacf": viz.plot_acf_pacf(ts.acf_values, ts.pacf_values),
+        }
+    if intervention:
+        charts["intervention"] = viz.plot_intervention(
+            intervention.history_dates, intervention.history_values, intervention.fitted, intervention.intervention_date
+        )
+    else:
+        charts["intervention"] = None
+    return charts
 
 
 def run_pipeline(
@@ -177,13 +208,29 @@ def run_pipeline(
     gb_learning_rate: float = 0.1,
     gb_max_iter: int = 100,
     hyperparameter_search: bool = False,
+    broad_hyperparameter_search: bool = False,
+    high_cardinality_encoding: str = "frequency",
+    intervention_date: str | None = None,
 ) -> AnalysisResult:
     schema = infer_schema(df, target=target)
     profile = profile_dataframe(df, schema)
     cleaned_df, cleaning_report = clean_dataframe(
         df, schema, profile, numeric_impute_strategy, cap_outliers=cap_outliers
     )
-    featured_df, fe_report = engineer_features(cleaned_df, schema, vectorize_text=vectorize_text)
+    featured_df, fe_report = engineer_features(
+        cleaned_df, schema, vectorize_text=vectorize_text, high_cardinality_encoding=high_cardinality_encoding
+    )
+
+    clustering_result = run_clustering(cleaned_df, schema.numeric_cols)
+
+    hypothesis_result = None
+    if schema.target and schema.task == "classification":
+        categorical_cols = schema.categorical_low_cols + schema.categorical_high_cols
+        hypothesis_result = HypothesisTestSuite(
+            chi_square=chi_square_tests(cleaned_df, categorical_cols, schema.target),
+            anova=anova_tests(cleaned_df, schema.numeric_cols, schema.target),
+            mann_whitney=mann_whitney_tests(cleaned_df, schema.numeric_cols, schema.target),
+        )
 
     modeling_result = None
     if schema.target and schema.task:
@@ -205,14 +252,21 @@ def run_pipeline(
             gb_learning_rate=gb_learning_rate,
             gb_max_iter=gb_max_iter,
             hyperparameter_search=hyperparameter_search,
+            broad_hyperparameter_search=broad_hyperparameter_search,
+            target_encode_cols=fe_report.deferred_target_encoding,
         )
 
-    charts = _build_charts(cleaned_df, featured_df, fe_report, schema, profile, modeling_result)
+    charts = _build_charts(cleaned_df, featured_df, fe_report, schema, profile, modeling_result, clustering_result)
 
     ts_result = None
+    intervention_result = None
     if schema.target and schema.task == "regression" and schema.datetime_cols:
         ts_result = analyze_time_series(cleaned_df, schema.datetime_cols[0], schema.target)
-    charts.update(_build_timeseries_charts(ts_result))
+        if intervention_date:
+            intervention_result = analyze_intervention(
+                cleaned_df, schema.datetime_cols[0], schema.target, intervention_date
+            )
+    charts.update(_build_timeseries_charts(ts_result, intervention_result))
 
     return AnalysisResult(
         dataset_name=dataset_name,
@@ -224,6 +278,9 @@ def run_pipeline(
         charts=charts,
         cleaned_df=cleaned_df,
         timeseries=ts_result,
+        clustering=clustering_result,
+        hypothesis_tests=hypothesis_result,
+        intervention=intervention_result,
     )
 
 

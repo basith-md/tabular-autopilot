@@ -95,3 +95,86 @@ def test_pipeline_all_numeric_dataset_runs_clean():
     df["target"] = df["f0"] * 2 + df["f1"] - df["f2"] + rng.normal(scale=0.1, size=150)
     result = run_pipeline(df, target="target", dataset_name="numeric_only")
     assert result.modeling.metrics["R2"] > 0.8
+
+
+def test_pipeline_runs_standalone_clustering_automatically(regression_df):
+    result = run_pipeline(regression_df, target="target", dataset_name="cluster_demo")
+
+    assert result.clustering is not None
+    assert result.clustering.k >= 2
+    assert result.charts["cluster_scatter"] is not None
+
+
+def test_pipeline_clustering_runs_even_without_a_target(regression_df):
+    result = run_pipeline(regression_df, target=None, dataset_name="cluster_eda_demo")
+    assert result.clustering is not None
+
+
+def test_pipeline_hypothesis_tests_populated_for_classification(classification_df):
+    result = run_pipeline(classification_df, target="label", dataset_name="hyp_demo")
+
+    assert result.hypothesis_tests is not None
+    assert result.hypothesis_tests.chi_square  # "flag" is categorical vs binary label
+    assert result.hypothesis_tests.mann_whitney  # binary label -> Mann-Whitney, not ANOVA
+    assert result.hypothesis_tests.anova == []
+
+
+def test_pipeline_hypothesis_tests_absent_for_regression(regression_df):
+    result = run_pipeline(regression_df, target="target", dataset_name="hyp_reg_demo")
+    assert result.hypothesis_tests is None
+
+
+def test_pipeline_high_cardinality_target_encoding_end_to_end():
+    rng = np.random.default_rng(10)
+    n = 300
+    codes = rng.choice([f"C{i}" for i in range(30)], size=n)
+    offset = pd.Series(codes).astype("category").cat.codes.to_numpy().astype(float)
+    y = offset + rng.normal(scale=0.5, size=n)
+    df = pd.DataFrame({"code": codes, "target": y})
+
+    result = run_pipeline(df, target="target", dataset_name="target_encode_demo", high_cardinality_encoding="target")
+
+    assert result.feature_engineering.deferred_target_encoding == ["code"]
+    assert result.modeling.target_encoded_features == ["code"]
+
+
+def test_pipeline_broad_hyperparameter_search_end_to_end(regression_df):
+    result = run_pipeline(
+        regression_df,
+        target="target",
+        dataset_name="broad_search_demo",
+        model_names=["Random Forest"],
+        hyperparameter_search=True,
+        broad_hyperparameter_search=True,
+    )
+
+    assert result.modeling.broad_hyperparameter_search_applied
+    assert "min_samples_leaf" in result.modeling.best_hyperparameters
+
+
+def test_pipeline_intervention_analysis_when_date_supplied():
+    n = 100
+    dates = pd.date_range("2022-01-01", periods=n, freq="D")
+    rng = np.random.default_rng(11)
+    values = np.concatenate(
+        [rng.normal(loc=50, scale=1.0, size=50), rng.normal(loc=80, scale=1.0, size=50)]
+    )
+    df = pd.DataFrame({"order_date": dates.astype(str), "units_sold": values})
+
+    result = run_pipeline(
+        df, target="units_sold", dataset_name="intervention_demo", intervention_date=str(dates[50].date())
+    )
+
+    assert result.intervention is not None
+    assert result.intervention.significant_level_shift
+    assert result.charts["intervention"] is not None
+
+
+def test_pipeline_intervention_absent_without_a_date():
+    n = 60
+    dates = pd.date_range("2022-01-01", periods=n, freq="D")
+    rng = np.random.default_rng(12)
+    df = pd.DataFrame({"order_date": dates.astype(str), "units_sold": rng.normal(size=n)})
+
+    result = run_pipeline(df, target="units_sold", dataset_name="no_intervention_demo")
+    assert result.intervention is None

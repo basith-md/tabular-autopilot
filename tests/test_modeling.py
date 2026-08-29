@@ -172,6 +172,87 @@ def test_hyperparameter_search_finds_a_value_from_the_grid(regression_df):
     assert result.best_hyperparameters["max_depth"] in (None, 8, 16)
 
 
+def test_broad_hyperparameter_search_tunes_more_parameters(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured,
+        "target",
+        fe.final_feature_columns,
+        "regression",
+        model_names=["Random Forest"],
+        hyperparameter_search=True,
+        broad_hyperparameter_search=True,
+    )
+
+    assert result.hyperparameter_search_applied
+    assert result.broad_hyperparameter_search_applied
+    assert set(result.best_hyperparameters) >= {"n_estimators", "max_depth", "min_samples_leaf", "max_features"}
+
+
+def test_narrow_search_does_not_set_the_broad_flag(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(
+        featured, "target", fe.final_feature_columns, "regression",
+        model_names=["Random Forest"], hyperparameter_search=True,
+    )
+
+    assert result.hyperparameter_search_applied
+    assert not result.broad_hyperparameter_search_applied
+    assert set(result.best_hyperparameters) == {"n_estimators", "max_depth"}
+
+
+def test_target_encoding_carries_real_signal_into_the_model():
+    rng = np.random.default_rng(6)
+    n = 300
+    cat = rng.choice(["A", "B", "C", "D", "E"], size=n)
+    offset = pd.Series(cat).map({"A": 0.0, "B": 5.0, "C": 10.0, "D": 15.0, "E": 20.0}).to_numpy()
+    y = offset + rng.normal(scale=1.0, size=n)
+    df = pd.DataFrame({"cat": cat, "noise": rng.normal(size=n), "target": y})
+
+    result = run_modeling(df, "target", ["cat", "noise"], "regression", target_encode_cols=["cat"])
+
+    assert result.target_encoded_features == ["cat"]
+    assert result.metrics["R2"] > 0.5
+
+
+def test_target_encoding_not_applied_when_not_requested():
+    rng = np.random.default_rng(6)
+    n = 300
+    cat = rng.choice(["A", "B", "C", "D", "E"], size=n)
+    y = rng.normal(size=n)
+    df = pd.DataFrame({"cat": cat, "noise": rng.normal(size=n), "target": y})
+
+    result = run_modeling(df, "target", ["cat", "noise"], "regression")
+
+    assert result.target_encoded_features == []
+
+
+def test_ols_baseline_includes_shapiro_wilk_normality_test(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(featured, "target", fe.final_feature_columns, "regression")
+
+    assert result.baseline.normality_test is not None
+    assert result.baseline.normality_test.test_name == "Shapiro-Wilk"
+
+
+def test_wilcoxon_test_compares_best_and_runner_up_under_cv(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(featured, "target", fe.final_feature_columns, "regression", cv_folds=5)
+
+    assert result.runner_up_model_name
+    assert result.runner_up_model_name != result.best_model_name
+    assert result.best_vs_runner_up_test is not None
+    assert result.best_vs_runner_up_test.test_name == "Wilcoxon signed-rank"
+
+
+def test_wilcoxon_test_absent_without_cross_validation(regression_df):
+    schema, featured, fe = _featured(regression_df, "target")
+    result = run_modeling(featured, "target", fe.final_feature_columns, "regression")
+
+    assert result.best_vs_runner_up_test is None
+    assert result.runner_up_model_name == ""
+
+
 def test_hyperparameter_search_is_skipped_under_cross_validation(regression_df):
     schema, featured, fe = _featured(regression_df, "target")
     result = run_modeling(

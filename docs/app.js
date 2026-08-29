@@ -107,7 +107,8 @@ def js_peek_columns(path):
 def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy, model_names_json,
                handle_imbalance, vectorize_text, feature_selection, cv_folds, cap_outliers,
                ridge_alpha_min, ridge_alpha_max, lasso_alpha_min, lasso_alpha_max, logreg_c,
-               rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter, hyperparameter_search):
+               rf_n_estimators, rf_max_depth, gb_learning_rate, gb_max_iter, hyperparameter_search,
+               broad_hyperparameter_search, high_cardinality_encoding, intervention_date):
     try:
         from tabular_autopilot.pipeline import load_dataframe, run_pipeline
         from tabular_autopilot.report import render_html
@@ -141,6 +142,9 @@ def js_analyze(path, target, dataset_name, max_rows, test_size, impute_strategy,
             gb_learning_rate=float(gb_learning_rate),
             gb_max_iter=int(gb_max_iter),
             hyperparameter_search=bool(hyperparameter_search),
+            broad_hyperparameter_search=bool(broad_hyperparameter_search),
+            high_cardinality_encoding=high_cardinality_encoding,
+            intervention_date=intervention_date if intervention_date else None,
         )
         html = render_html(result)
         return json.dumps({
@@ -252,6 +256,9 @@ function currentSettings() {
     rfMaxDepth: Number(document.getElementById("rf-max-depth").value),
     gbLearningRate: Number(document.getElementById("gb-learning-rate").value),
     gbMaxIter: Number(document.getElementById("gb-max-iter").value),
+    broadHyperparameterSearch: document.getElementById("broad-hyperparameter-search").checked,
+    highCardinalityEncoding: document.querySelector('input[name="high-card-encoding"]:checked').value,
+    interventionDate: document.getElementById("intervention-date").value.trim(),
   };
 }
 
@@ -407,7 +414,10 @@ async function runAnalysis(path, target, displayName) {
       settings.rfMaxDepth,
       settings.gbLearningRate,
       settings.gbMaxIter,
-      settings.hyperparameterSearch
+      settings.hyperparameterSearch,
+      settings.broadHyperparameterSearch,
+      settings.highCardinalityEncoding,
+      settings.interventionDate
     );
     const parsed = JSON.parse(raw);
 

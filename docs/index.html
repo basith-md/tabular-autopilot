@@ -206,6 +206,11 @@
               <label><input type="checkbox" id="vectorize-text" checked> TF-IDF vectorize free-text columns</label>
               <label><input type="checkbox" id="feature-selection" checked> Automatic feature selection</label>
             </div>
+            <div class="settings-group-label">High-cardinality categorical encoding</div>
+            <div class="radio-row">
+              <label><input type="radio" name="high-card-encoding" value="frequency" checked> Frequency</label>
+              <label><input type="radio" name="high-card-encoding" value="target"> Target (out-of-fold)</label>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -228,6 +233,7 @@
             </div>
 
             <label class="hp-search-toggle"><input type="checkbox" id="hyperparameter-search"> Grid-search each model's key hyperparameter (slower — 3-fold, centered on the values below)</label>
+            <label class="hp-search-toggle"><input type="checkbox" id="broad-hyperparameter-search"> Broaden the search (RandomizedSearchCV over several more parameters per model)</label>
 
             <div class="model-hp-panel" data-for-model="Ridge (CV)">
               <div class="model-hp-title">Ridge (CV) — regularization search range</div>
@@ -292,6 +298,15 @@
               <label for="cv-folds">Cross-validation folds</label>
               <input type="range" id="cv-folds" min="2" max="10" step="1" value="5">
               <span class="value" id="cv-folds-value">5</span>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4 class="settings-section-title">6 &middot; Time series <span class="settings-section-note">(optional)</span></h4>
+            <p class="settings-section-note">Only used when your data has a datetime column and a numeric target. Tests whether the series shifted level or trend right at this date.</p>
+            <div class="dual-input-row">
+              <label for="intervention-date">Intervention date</label>
+              <input type="date" id="intervention-date">
             </div>
           </div>
         </div>

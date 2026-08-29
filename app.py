@@ -41,6 +41,20 @@ def _img(uri: str | None):
         st.caption("Not applicable for this dataset.")
 
 
+def _association_table(tests, digits: int = 3) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "feature": t.feature,
+                "statistic": round(t.statistic, digits),
+                "p_value": round(t.p_value, 4),
+                "significant": t.significant,
+            }
+            for t in tests
+        ]
+    )
+
+
 st.title("tabular-autopilot")
 st.caption(
     "Upload any tabular dataset and get automated profiling, cleaning, feature engineering, "
@@ -103,6 +117,13 @@ with st.sidebar:
         feature_selection = st.checkbox(
             "Automatic feature selection (near-zero-variance + top-50 SelectKBest)", value=True
         )
+        high_cardinality_encoding = st.radio(
+            "High-cardinality categorical encoding",
+            ["frequency", "target"],
+            horizontal=True,
+            help="Target encoding is out-of-fold (leak-free) and needs a target column; "
+            "falls back to frequency encoding for EDA-only runs.",
+        )
 
     with st.expander("Class balance (classification targets)", expanded=False):
         handle_imbalance = st.checkbox("Balance class weighting for imbalanced targets", value=True)
@@ -118,6 +139,14 @@ with st.sidebar:
             value=False,
             help="Runs a small 3-fold search centered on the values below instead of using them "
             "directly. Disabled together with cross-validation, to avoid nested CV.",
+        )
+        broad_hyperparameter_search = st.checkbox(
+            "Broaden the search (Random Forest / Gradient Boosting / Logistic Regression)",
+            value=False,
+            disabled=not hyperparameter_search,
+            help="Switches to RandomizedSearchCV over several more parameters per model "
+            "(e.g. Random Forest also tunes min_samples_leaf and max_features), sampling "
+            "10 combinations instead of exhaustively evaluating the small grid above.",
         )
         st.markdown("**Ridge (CV) / Lasso (CV)** — regularization search range")
         rc1, rc2 = st.columns(2)
@@ -139,6 +168,15 @@ with st.sidebar:
     with st.expander("Evaluation strategy", expanded=False):
         use_cv = st.checkbox("Use k-fold cross-validation instead of a single split (slower)", value=False)
         cv_folds = st.slider("CV folds", 2, 10, 5, disabled=not use_cv) if use_cv else 0
+
+    with st.expander("Time series (optional)", expanded=False):
+        st.caption(
+            "Only used when the dataset has a datetime column and a numeric target. "
+            "Tests whether the series shifted level or trend right at this date "
+            "(e.g. a policy change or product launch)."
+        )
+        intervention_date_input = st.text_input("Intervention date (YYYY-MM-DD)", value="")
+        intervention_date = intervention_date_input.strip() or None
 
     run_clicked = st.button("Analyze", type="primary", disabled=df is None)
 
@@ -174,6 +212,9 @@ try:
             gb_learning_rate=gb_learning_rate,
             gb_max_iter=gb_max_iter,
             hyperparameter_search=hyperparameter_search,
+            broad_hyperparameter_search=broad_hyperparameter_search,
+            high_cardinality_encoding=high_cardinality_encoding,
+            intervention_date=intervention_date,
         )
 except Exception as exc:
     st.error(f"Analysis failed: {exc}")
@@ -193,6 +234,7 @@ tabs = st.tabs(
         "Overview",
         "Missing data",
         "Distributions",
+        "Segments",
         "Correlations",
         "Geospatial",
         "Feature engineering",
@@ -248,6 +290,22 @@ with tabs[2]:
         )
 
 with tabs[3]:
+    st.subheader("Segments (unsupervised clustering)")
+    st.caption(
+        "KMeans over every numeric column, cluster count chosen automatically by silhouette "
+        "score — independent of geography or any modeling target."
+    )
+    if result.clustering:
+        c1, c2 = st.columns(2)
+        c1.metric("Segments found", result.clustering.k)
+        c2.metric("Silhouette score", f"{result.clustering.silhouette_score:.3f}")
+        st.write("Segment sizes:", result.clustering.cluster_sizes)
+        st.caption(f"Based on: {', '.join(result.clustering.columns_used)}")
+        _img(result.charts.get("cluster_scatter"))
+    else:
+        st.caption("Not enough numeric columns or rows to cluster meaningfully.")
+
+with tabs[4]:
     st.subheader("Correlation heatmap")
     _img(result.charts.get("correlation_heatmap"))
     st.subheader("Target by category")
@@ -260,8 +318,20 @@ with tabs[3]:
             for p in profile.redundant_pairs
         ]
         st.dataframe(pd.DataFrame(pairs_rows), width="stretch")
+    if result.hypothesis_tests:
+        st.subheader(f"Formal association tests (target: `{schema.target}`)")
+        ht = result.hypothesis_tests
+        if ht.chi_square:
+            st.write("Chi-square test of independence — each categorical column vs the target:")
+            st.dataframe(_association_table(ht.chi_square), width="stretch")
+        if ht.anova:
+            st.write("One-way ANOVA (>2 classes) — each numeric column vs the target:")
+            st.dataframe(_association_table(ht.anova), width="stretch")
+        if ht.mann_whitney:
+            st.write("Mann-Whitney U (binary target, non-parametric) — each numeric column vs the target:")
+            st.dataframe(_association_table(ht.mann_whitney, digits=1), width="stretch")
 
-with tabs[4]:
+with tabs[5]:
     st.subheader("Geospatial distribution")
     if schema.has_geo:
         _img(result.charts.get("geo_scatter"))
@@ -269,10 +339,15 @@ with tabs[4]:
     else:
         st.caption("No latitude/longitude column pair detected in this dataset.")
 
-with tabs[5]:
+with tabs[6]:
     st.subheader("Feature engineering summary")
     st.write("One-hot encoded:", result.feature_engineering.one_hot_encoded or "none")
     st.write("Frequency encoded:", result.feature_engineering.frequency_encoded or "none")
+    if result.feature_engineering.deferred_target_encoding:
+        st.write(
+            "Target-encoded (out-of-fold, applied after the train/test split):",
+            result.feature_engineering.deferred_target_encoding,
+        )
     st.write("Datetime expanded:", list(result.feature_engineering.datetime_expanded.keys()) or "none")
     st.write("Text columns TF-IDF vectorized:", list(result.feature_engineering.text_vectorized.keys()) or "none")
     st.write("Dropped (identifier/constant/text):", result.feature_engineering.dropped_columns or "none")
@@ -284,7 +359,7 @@ with tabs[5]:
         )
         _img(result.charts.get("pca_scatter"))
 
-with tabs[6]:
+with tabs[7]:
     if result.modeling is None:
         st.caption("No target column selected — modeling was skipped (EDA-only run).")
     else:
@@ -302,9 +377,25 @@ with tabs[6]:
             st.warning(f"Target is imbalanced ({profile.class_balance.imbalance_ratio:.1f}:1){note}.")
         comp_df = pd.DataFrame(m.model_comparison).T
         st.dataframe(comp_df, width="stretch")
+        if m.best_vs_runner_up_test:
+            wt = m.best_vs_runner_up_test
+            verdict = (
+                "statistically significant, not just noise between folds"
+                if wt.significant
+                else "not statistically significant — within noise of each other"
+            )
+            st.caption(
+                f"Wilcoxon signed-rank, {m.best_model_name} vs runner-up `{m.runner_up_model_name}` "
+                f"across {m.cv_folds} CV folds: p={wt.p_value:.4f} — the difference is {verdict}."
+            )
         st.markdown(f"**Best model:** `{m.best_model_name}`")
         if m.best_hyperparameters:
-            search_note = " (found via grid search)" if m.hyperparameter_search_applied else ""
+            if m.broad_hyperparameter_search_applied:
+                search_note = " (found via broad randomized search)"
+            elif m.hyperparameter_search_applied:
+                search_note = " (found via grid search)"
+            else:
+                search_note = ""
             params = ", ".join(f"{k}={v}" for k, v in m.best_hyperparameters.items())
             st.caption(f"Hyperparameters{search_note}: {params}")
         cols = st.columns(len(m.metrics))
@@ -321,7 +412,7 @@ with tabs[6]:
             )
             _img(result.charts.get("decision_tree"))
 
-with tabs[7]:
+with tabs[8]:
     if result.modeling is None or result.modeling.baseline is None:
         st.caption("No diagnostics available for this run.")
     elif result.modeling.baseline.kind == "skipped":
@@ -329,7 +420,7 @@ with tabs[7]:
     else:
         b = result.modeling.baseline
         label = "R²" if b.kind == "ols" else "Pseudo R²"
-        cols = st.columns(3)
+        cols = st.columns(4)
         cols[0].metric(label, f"{b.pseudo_or_r_squared:.3f}")
         if b.adj_r_squared is not None:
             cols[1].metric("Adj. R²", f"{b.adj_r_squared:.3f}")
@@ -339,6 +430,12 @@ with tabs[7]:
                 st.warning("Heteroscedasticity detected (p < 0.05) — baseline standard errors may be unreliable.")
             else:
                 st.success("No significant heteroscedasticity detected.")
+        if b.normality_test:
+            cols[3].metric("Shapiro-Wilk p", f"{b.normality_test.p_value:.4f}")
+            if b.normality_test.significant:
+                st.warning("Shapiro-Wilk rejects normality of the residuals (p < 0.05) — check the Q-Q plot below.")
+            else:
+                st.success("Shapiro-Wilk does not reject normality of the residuals.")
         if b.dropped_for_multicollinearity:
             st.warning(f"Dropped for multicollinearity (VIF > 10): {b.dropped_for_multicollinearity}")
         _img(result.charts.get("residuals_vs_fitted"))
@@ -346,7 +443,7 @@ with tabs[7]:
         with st.expander("Full statistical summary"):
             st.code(b.summary_text)
 
-with tabs[8]:
+with tabs[9]:
     ts = result.timeseries
     if ts is None:
         st.caption("No datetime column + numeric target combination detected — time series diagnostics skipped.")
@@ -360,7 +457,37 @@ with tabs[8]:
             st.success("Augmented Dickey-Fuller test rejects a unit root — series appears stationary.")
         else:
             st.warning("Augmented Dickey-Fuller test cannot reject a unit root — series appears non-stationary.")
+        if ts.forecast_method in ("arima", "sarima"):
+            seasonal_note = f" × seasonal {ts.seasonal_order}" if ts.seasonal_order else ""
+            st.caption(
+                f"Forecast method: **{ts.forecast_method.upper()}** order {ts.arima_order}{seasonal_note}, "
+                f"chosen by lowest AIC ({ts.aic:.1f}) over a small (p,d,q) grid."
+            )
+        elif ts.forecast_method == "exponential_smoothing":
+            st.caption("Forecast method: **Exponential Smoothing** (ARIMA/SARIMA order search did not converge).")
         _img(result.charts.get("ts_trend"))
         _img(result.charts.get("ts_acf_pacf"))
         if ts.note:
             st.caption(ts.note)
+
+        if result.intervention:
+            iv = result.intervention
+            st.subheader(f"Interrupted time series — intervention on {iv.intervention_date}")
+            st.caption(
+                f"Segmented regression fit on {iv.n_pre} pre-intervention and {iv.n_post} "
+                "post-intervention observations."
+            )
+            cols = st.columns(4)
+            cols[0].metric("Level shift", f"{iv.level_shift:.3f}")
+            cols[1].metric("Level shift p", f"{iv.level_shift_pvalue:.4f}")
+            cols[2].metric("Slope change", f"{iv.slope_change:.4f}")
+            cols[3].metric("Slope change p", f"{iv.slope_change_pvalue:.4f}")
+            if iv.significant_level_shift:
+                st.success("The level of the series shifted significantly at the intervention date.")
+            else:
+                st.caption("No statistically significant level shift detected at the intervention date.")
+            if iv.significant_slope_change:
+                st.success("The trend's slope also changed significantly after the intervention.")
+            else:
+                st.caption("No statistically significant slope change detected after the intervention.")
+            _img(result.charts.get("intervention"))

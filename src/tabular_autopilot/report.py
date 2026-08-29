@@ -40,6 +40,9 @@ def render_html(result: AnalysisResult) -> str:
         charts=result.charts,
         columns_table=columns_table,
         timeseries=result.timeseries,
+        clustering=result.clustering,
+        hypothesis_tests=result.hypothesis_tests,
+        intervention=result.intervention,
     )
 
 

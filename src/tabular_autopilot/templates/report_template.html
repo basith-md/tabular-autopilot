@@ -91,7 +91,22 @@
 </section>
 
 <section>
-  <h2>3. Relationships</h2>
+  <h2>3. Segments (unsupervised clustering)</h2>
+  <p class="muted">KMeans over every numeric column, with the cluster count chosen automatically by silhouette score — independent of geography or any modeling target, this answers "what natural segments exist here" as its own EDA step.</p>
+  {% if clustering %}
+  <div class="metric-row">
+    <div class="metric"><div class="label">Segments found</div><div class="value">{{ clustering.k }}</div></div>
+    <div class="metric"><div class="label">Silhouette score</div><div class="value">{{ "%.3f"|format(clustering.silhouette_score) }}</div></div>
+  </div>
+  <p class="muted">Segment sizes: {% for id, count in clustering.cluster_sizes.items() %}segment {{ id }}={{ count }}{% if not loop.last %}, {% endif %}{% endfor %} &middot; based on: {{ clustering.columns_used|join(", ") }}</p>
+  {% if charts.cluster_scatter %}<div class="card" style="margin-top:1rem;"><img src="{{ charts.cluster_scatter }}"></div>{% endif %}
+  {% else %}
+  <p class="muted">Not enough numeric columns or rows to cluster meaningfully.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>4. Relationships</h2>
   <div class="grid">
     {% if charts.correlation_heatmap %}<div class="card"><h3>Correlation heatmap</h3><img src="{{ charts.correlation_heatmap }}"></div>{% endif %}
     {% if charts.target_by_category %}<div class="card"><h3>Target by category</h3><img src="{{ charts.target_by_category }}"></div>{% endif %}
@@ -99,10 +114,43 @@
   {% if charts.geo_scatter %}
   <div class="card" style="margin-top:1.5rem;"><h3>Geospatial distribution</h3><img src="{{ charts.geo_scatter }}"></div>
   {% endif %}
+  {% if hypothesis_tests %}
+  <h3 style="margin-top:1.5rem;">Formal association tests (target: <code>{{ schema.target }}</code>)</h3>
+  {% if hypothesis_tests.chi_square %}
+  <p class="muted">Chi-square test of independence — each categorical column vs the target:</p>
+  <table>
+    <tr><th>Column</th><th>Statistic</th><th>p-value</th><th>Association</th></tr>
+    {% for t in hypothesis_tests.chi_square %}
+    <tr><td>{{ t.feature }}</td><td>{{ "%.3f"|format(t.statistic) }}</td><td>{{ "%.4f"|format(t.p_value) }}</td>
+      <td class="{{ 'ok' if t.significant else 'muted' }}">{{ "significant (p < 0.05)" if t.significant else "not significant" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if hypothesis_tests.anova %}
+  <p class="muted">One-way ANOVA (&gt;2 classes) — each numeric column vs the target:</p>
+  <table>
+    <tr><th>Column</th><th>F-statistic</th><th>p-value</th><th>Association</th></tr>
+    {% for t in hypothesis_tests.anova %}
+    <tr><td>{{ t.feature }}</td><td>{{ "%.3f"|format(t.statistic) }}</td><td>{{ "%.4f"|format(t.p_value) }}</td>
+      <td class="{{ 'ok' if t.significant else 'muted' }}">{{ "significant (p < 0.05)" if t.significant else "not significant" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if hypothesis_tests.mann_whitney %}
+  <p class="muted">Mann-Whitney U (binary target, non-parametric) — each numeric column vs the target:</p>
+  <table>
+    <tr><th>Column</th><th>U-statistic</th><th>p-value</th><th>Association</th></tr>
+    {% for t in hypothesis_tests.mann_whitney %}
+    <tr><td>{{ t.feature }}</td><td>{{ "%.1f"|format(t.statistic) }}</td><td>{{ "%.4f"|format(t.p_value) }}</td>
+      <td class="{{ 'ok' if t.significant else 'muted' }}">{{ "significant (p < 0.05)" if t.significant else "not significant" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% endif %}
 </section>
 
 <section>
-  <h2>4. Cleaning &amp; feature engineering</h2>
+  <h2>5. Cleaning &amp; feature engineering</h2>
   <div class="grid">
     <div class="card">
       <h3>Cleaning</h3>
@@ -117,6 +165,9 @@
       <h3>Feature engineering</h3>
       <p class="muted">One-hot encoded: {{ fe.one_hot_encoded|join(", ") or "none" }}</p>
       <p class="muted">Frequency encoded: {{ fe.frequency_encoded|join(", ") or "none" }}</p>
+      {% if fe.deferred_target_encoding %}
+      <p class="muted">Target-encoded (out-of-fold, applied after the train/test split): {{ fe.deferred_target_encoding|join(", ") }}</p>
+      {% endif %}
       <p class="muted">Datetime expanded: {{ fe.datetime_expanded.keys()|list|join(", ") or "none" }}</p>
       <p class="muted">Geo features added: {{ fe.geo_features_added|join(", ") or "none" }}</p>
       <p class="muted">Text columns TF-IDF vectorized: {{ fe.text_vectorized.keys()|list|join(", ") or "none" }}</p>
@@ -134,7 +185,7 @@
 
 {% if modeling %}
 <section>
-  <h2>5. Modeling — {{ modeling.task }} on <code>{{ modeling.target }}</code></h2>
+  <h2>6. Modeling — {{ modeling.task }} on <code>{{ modeling.target }}</code></h2>
   {% if modeling.cv_folds and modeling.cv_folds >= 2 %}
   <p class="muted">Comparison metrics below are {{ modeling.cv_folds }}-fold cross-validation means over the full dataset. Diagnostics, the confusion matrix, feature importance and the illustrative tree are computed on a single held-out split ({{ modeling.n_train }} train / {{ modeling.n_test }} test rows) since those need one concrete fitted model.</p>
   {% else %}
@@ -168,11 +219,21 @@
     </tr>
     {% endfor %}
   </table>
+  {% if modeling.best_vs_runner_up_test %}
+  <p class="muted">
+    Wilcoxon signed-rank test, {{ modeling.best_model_name }} vs runner-up <code>{{ modeling.runner_up_model_name }}</code> across the {{ modeling.cv_folds }} CV folds:
+    p={{ "%.4f"|format(modeling.best_vs_runner_up_test.p_value) }} —
+    {% if modeling.best_vs_runner_up_test.significant %}<span class="ok">the difference is statistically significant, not just noise between folds</span>{% else %}<span class="muted">not statistically significant — the two are within noise of each other on this data</span>{% endif %}.
+  </p>
+  {% endif %}
 
   <h3>Best model — {{ modeling.best_model_name }}</h3>
   {% if modeling.best_hyperparameters %}
   <p class="muted">
-    Hyperparameters{% if modeling.hyperparameter_search_applied %} <span class="badge">found via grid search</span>{% endif %}:
+    Hyperparameters
+    {%- if modeling.broad_hyperparameter_search_applied %} <span class="badge">found via broad randomized search</span>
+    {%- elif modeling.hyperparameter_search_applied %} <span class="badge">found via grid search</span>
+    {%- endif -%}:
     {% for k, v in modeling.best_hyperparameters.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
   </p>
   {% endif %}
@@ -200,6 +261,9 @@
     {% if modeling.baseline.breusch_pagan_pvalue is not none %}
     <div class="metric"><div class="label">Breusch-Pagan p</div><div class="value {{ 'warn' if modeling.baseline.heteroscedastic else 'ok' }}">{{ "%.4f"|format(modeling.baseline.breusch_pagan_pvalue) }}</div></div>
     {% endif %}
+    {% if modeling.baseline.normality_test %}
+    <div class="metric"><div class="label">Shapiro-Wilk p</div><div class="value {{ 'warn' if modeling.baseline.normality_test.significant else 'ok' }}">{{ "%.4f"|format(modeling.baseline.normality_test.p_value) }}</div></div>
+    {% endif %}
   </div>
   {% if modeling.baseline.dropped_for_multicollinearity %}
   <p class="warn">Dropped for multicollinearity (VIF &gt; 10): {{ modeling.baseline.dropped_for_multicollinearity|join(", ") }}</p>
@@ -208,6 +272,13 @@
   <p class="warn">Breusch-Pagan test indicates heteroscedasticity (p &lt; 0.05) — standard errors on the baseline coefficients may be unreliable.</p>
   {% elif modeling.baseline.breusch_pagan_pvalue is not none %}
   <p class="ok">No significant heteroscedasticity detected.</p>
+  {% endif %}
+  {% if modeling.baseline.normality_test %}
+  {% if modeling.baseline.normality_test.significant %}
+  <p class="warn">Shapiro-Wilk test rejects normality of the residuals (p &lt; 0.05) — the Q-Q plot below is worth a look before trusting the coefficient p-values at face value.</p>
+  {% else %}
+  <p class="ok">Shapiro-Wilk test does not reject normality of the residuals.</p>
+  {% endif %}
   {% endif %}
 
   <div class="grid">
@@ -225,7 +296,7 @@
 
 {% if timeseries %}
 <section>
-  <h2>6. Time series diagnostics — <code>{{ timeseries.value_col }}</code> over <code>{{ timeseries.date_col }}</code></h2>
+  <h2>7. Time series diagnostics — <code>{{ timeseries.value_col }}</code> over <code>{{ timeseries.date_col }}</code></h2>
   <p class="muted">Triggered automatically because the dataset has a datetime column alongside a numeric target — run independent of whether the model above uses that column.</p>
   <div class="metric-row">
     <div class="metric"><div class="label">Observations</div><div class="value">{{ timeseries.n_obs }}</div></div>
@@ -237,11 +308,42 @@
   {% else %}
   <p class="warn">Augmented Dickey-Fuller test cannot reject a unit root (p &ge; 0.05) — series appears non-stationary (trend/seasonality likely present).</p>
   {% endif %}
+  {% if timeseries.forecast_method in ("arima", "sarima") %}
+  <p class="muted">
+    Forecast method: <span class="badge">{{ timeseries.forecast_method|upper }}</span>
+    order {{ timeseries.arima_order }}{% if timeseries.seasonal_order %} &times; seasonal {{ timeseries.seasonal_order }}{% endif %},
+    chosen by lowest AIC ({{ "%.1f"|format(timeseries.aic) }}) over a small (p,d,q) grid{% if timeseries.seasonal_order %} plus one weekly-seasonal candidate{% endif %}.
+  </p>
+  {% elif timeseries.forecast_method == "exponential_smoothing" %}
+  <p class="muted">Forecast method: <span class="badge">Exponential Smoothing</span> (ARIMA/SARIMA order search did not converge for this series).</p>
+  {% endif %}
   <div class="grid">
     {% if charts.ts_trend %}<div class="card"><h3>History &amp; forecast</h3><img src="{{ charts.ts_trend }}"></div>{% endif %}
     {% if charts.ts_acf_pacf %}<div class="card"><h3>ACF / PACF</h3><img src="{{ charts.ts_acf_pacf }}"></div>{% endif %}
   </div>
   {% if timeseries.note %}<p class="muted">{{ timeseries.note }}</p>{% endif %}
+
+  {% if intervention %}
+  <h3 style="margin-top:2rem;">Interrupted time series — intervention on {{ intervention.intervention_date }}</h3>
+  <p class="muted">Segmented regression: y ~ time + post + (time since intervention) &times; post, fit on {{ intervention.n_pre }} pre-intervention and {{ intervention.n_post }} post-intervention observations.</p>
+  <div class="metric-row">
+    <div class="metric"><div class="label">Level shift</div><div class="value {{ 'ok' if intervention.significant_level_shift else 'muted' }}">{{ "%.3f"|format(intervention.level_shift) }}</div></div>
+    <div class="metric"><div class="label">Level shift p</div><div class="value">{{ "%.4f"|format(intervention.level_shift_pvalue) }}</div></div>
+    <div class="metric"><div class="label">Slope change</div><div class="value {{ 'ok' if intervention.significant_slope_change else 'muted' }}">{{ "%.4f"|format(intervention.slope_change) }}</div></div>
+    <div class="metric"><div class="label">Slope change p</div><div class="value">{{ "%.4f"|format(intervention.slope_change_pvalue) }}</div></div>
+  </div>
+  {% if intervention.significant_level_shift %}
+  <p class="ok">The level of the series shifted significantly right at the intervention date (p &lt; 0.05).</p>
+  {% else %}
+  <p class="muted">No statistically significant level shift detected at the intervention date.</p>
+  {% endif %}
+  {% if intervention.significant_slope_change %}
+  <p class="ok">The trend's slope also changed significantly after the intervention (p &lt; 0.05).</p>
+  {% else %}
+  <p class="muted">No statistically significant slope change detected after the intervention.</p>
+  {% endif %}
+  {% if charts.intervention %}<div class="card" style="margin-top:1rem;"><img src="{{ charts.intervention }}"></div>{% endif %}
+  {% endif %}
 </section>
 {% endif %}
 
