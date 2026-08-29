@@ -1,4 +1,4 @@
-"""Run tabular-autopilot on the synthetic retail sales dataset (datetime + time-series)."""
+"""Run Tabular Autopilot on the synthetic retail sales dataset (datetime + time-series)."""
 
 from pathlib import Path
 

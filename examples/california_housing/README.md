@@ -16,4 +16,4 @@ The interpretable OLS baseline (with VIF-pruned features) is included in the ful
 
 ## Acknowledgment
 
-This example was inspired by an earlier 5-author bootcamp group project ("California Home Price Prediction") that first explored this dataset with OLS regression and a small neural network. `tabular-autopilot` itself is new, solo, general-purpose work — it is not a copy of that project, and none of its code originates there — but the dataset choice and the diagnostic rigor (VIF, heteroscedasticity, Q-Q checks) are a nod to that earlier analysis.
+This example was inspired by an earlier 5-author bootcamp group project ("California Home Price Prediction") that first explored this dataset with OLS regression and a small neural network. Tabular Autopilot itself is new, solo, general-purpose work — it is not a copy of that project, and none of its code originates there — but the dataset choice and the diagnostic rigor (VIF, heteroscedasticity, Q-Q checks) are a nod to that earlier analysis.

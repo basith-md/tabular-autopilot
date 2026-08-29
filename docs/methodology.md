@@ -1,6 +1,6 @@
 # Methodology
 
-This document walks through every automated decision `tabular-autopilot` makes, in the order it makes them, and explains *why* — plus an honest list of what is intentionally out of scope for v0.1.
+This document walks through every automated decision Tabular Autopilot makes, in the order it makes them, and explains *why* — plus an honest list of what is intentionally out of scope for v0.1.
 
 ## 1. Schema inference (`schema.py`)
 

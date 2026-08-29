@@ -1,4 +1,4 @@
-"""Run tabular-autopilot on the Titanic dataset (classification, mixed types, missing data)."""
+"""Run Tabular Autopilot on the Titanic dataset (classification, mixed types, missing data)."""
 
 from pathlib import Path
 

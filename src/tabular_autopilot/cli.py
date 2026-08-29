@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         name = args.name or data_path.stem
         out_path = Path(args.out) if args.out else Path("reports") / f"{name}.html"
 
-        print(f"Running tabular-autopilot on {data_path} (target={args.target!r}) ...")
+        print(f"Running Tabular Autopilot on {data_path} (target={args.target!r}) ...")
         result = run_pipeline_from_csv(data_path, target=args.target, dataset_name=name)
         written = write_report(result, out_path)
 

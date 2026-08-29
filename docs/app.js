@@ -1,4 +1,4 @@
-/* tabular-autopilot browser demo
+/* Tabular Autopilot browser demo
  *
  * Boots Pyodide (CPython -> WebAssembly) in the background as soon as the
  * page loads, installs the real `tabular_autopilot` wheel via micropip, and
@@ -61,7 +61,7 @@ async function boot() {
     setStatus("", "Installing seaborn, jinja2, openpyxl…");
     await micropip.install(["seaborn", "jinja2", "openpyxl"]);
 
-    setStatus("", "Installing tabular-autopilot…");
+    setStatus("", "Installing Tabular Autopilot…");
     // deps=False: we've already loaded compatible versions of every
     // dependency above. Pyodide's prebuilt packages pin exact versions
     // (e.g. matplotlib 3.5.2) that can be older than this wheel's ">="

@@ -1,4 +1,4 @@
-"""Run tabular-autopilot on the California Housing dataset (regression, geospatial)."""
+"""Run Tabular Autopilot on the California Housing dataset (regression, geospatial)."""
 
 from pathlib import Path
 

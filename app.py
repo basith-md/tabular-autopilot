@@ -16,7 +16,7 @@ from tabular_autopilot.modeling import available_model_names
 from tabular_autopilot.pipeline import load_dataframe, run_pipeline
 from tabular_autopilot.report import render_html
 
-st.set_page_config(page_title="tabular-autopilot", layout="wide")
+st.set_page_config(page_title="Tabular Autopilot", layout="wide")
 
 EXAMPLES = {
     "California Housing (regression + geospatial)": (
@@ -55,7 +55,7 @@ def _association_table(tests, digits: int = 3) -> pd.DataFrame:
     )
 
 
-st.title("tabular-autopilot")
+st.title("Tabular Autopilot")
 st.caption(
     "Upload any tabular dataset and get automated profiling, cleaning, feature engineering, "
     "modeling and diagnostics — the column roles, cleaning strategy and model choice all adapt "

@@ -1,4 +1,4 @@
-# tabular-autopilot
+# Tabular Autopilot
 
 **[Try the live browser demo →](https://basith-md.github.io/tabular-autopilot/)** — drag in a CSV or Excel file and watch the full pipeline run, entirely client-side. There is no backend for that page: the actual `tabular_autopilot` package is compiled to WebAssembly (via [Pyodide](https://pyodide.org)) and runs on your CPU, so nothing you drop there is ever uploaded anywhere.
 
@@ -90,7 +90,7 @@ pytest -q
 
 ## Acknowledgment
 
-Inspired by an earlier 5-author bootcamp group project analyzing California housing prices, and by a university predictive-analytics course covering regression, trees, regularization, and time-series methods. `tabular-autopilot` is new, solo, general-purpose work built on top of that experience — see [`examples/california_housing/README.md`](examples/california_housing/README.md) and [`docs/methodology.md`](docs/methodology.md) for specifics on what carried over as design inspiration versus what's genuinely new here.
+Inspired by an earlier 5-author bootcamp group project analyzing California housing prices, and by a university predictive-analytics course covering regression, trees, regularization, and time-series methods. Tabular Autopilot is new, solo, general-purpose work built on top of that experience — see [`examples/california_housing/README.md`](examples/california_housing/README.md) and [`docs/methodology.md`](docs/methodology.md) for specifics on what carried over as design inspiration versus what's genuinely new here.
 
 ## License
 

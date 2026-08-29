@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>tabular-autopilot report — {{ dataset_name }}</title>
+<title>Tabular Autopilot report — {{ dataset_name }}</title>
 <style>
   :root {
     --bg: #f9f9f7; --panel: #ffffff; --panel-alt: #f4f3ef; --text: #0b0b0b;
@@ -37,7 +37,7 @@
 </head>
 <body>
 <header>
-  <h1>tabular-autopilot</h1>
+  <h1>Tabular Autopilot</h1>
   <p>Automated analysis report for <strong>{{ dataset_name }}</strong> &middot; {{ profile.n_rows }} rows &times; {{ profile.n_cols }} columns
   {% if schema.task %}<span class="badge">task: {{ schema.task }}</span>{% endif %}
   {% if schema.target %}<span class="badge">target: {{ schema.target }}</span>{% endif %}
@@ -348,7 +348,7 @@
 {% endif %}
 
 <section>
-  <p class="muted" style="text-align:center; margin-top:3rem;">Generated automatically by <strong>tabular-autopilot</strong>.</p>
+  <p class="muted" style="text-align:center; margin-top:3rem;">Generated automatically by <strong>Tabular Autopilot</strong>.</p>
 </section>
 
 </main>
