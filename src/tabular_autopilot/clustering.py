@@ -24,6 +24,12 @@ MIN_ROWS_FOR_CLUSTERING = 20
 MIN_NUMERIC_COLUMNS = 2
 K_RANGE = range(2, 9)  # silhouette-searched cluster counts
 RANDOM_STATE = 42
+# silhouette_score computes a full pairwise-distance matrix when scored on
+# every row -- O(n^2), which is minutes of runtime (or worse, memory) past a
+# few thousand rows. Scoring each candidate k on a fixed-size random sample
+# instead keeps the search O(1) in dataset size; KMeans itself still fits on
+# every row, so cluster *assignments* are unaffected, only which k is picked.
+SILHOUETTE_SAMPLE_SIZE = 5000
 
 
 @dataclass
@@ -37,13 +43,14 @@ class ClusteringResult:
 
 def _best_k_by_silhouette(scaled: np.ndarray) -> tuple[int, float, np.ndarray] | None:
     best: tuple[int, float, np.ndarray] | None = None
+    sample_size = min(SILHOUETTE_SAMPLE_SIZE, len(scaled) - 1)
     for k in K_RANGE:
         if k >= len(scaled):
             break
         labels = KMeans(n_clusters=k, n_init=10, random_state=RANDOM_STATE).fit_predict(scaled)
         if len(set(labels)) < 2:
             continue
-        score = float(silhouette_score(scaled, labels))
+        score = float(silhouette_score(scaled, labels, sample_size=sample_size, random_state=RANDOM_STATE))
         if best is None or score > best[1]:
             best = (k, score, labels)
     return best

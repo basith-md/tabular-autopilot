@@ -72,8 +72,13 @@ class InterventionResult:
 
 
 def _aggregate_series(df: pd.DataFrame, date_col: str, value_col: str) -> pd.Series:
+    """Aggregate to one observation per calendar day. A timestamp column
+    with a time-of-day component (order timestamps, ride pickups, ...) would
+    otherwise group by the exact instant -- effectively no aggregation at
+    all, silently turning "N observations" into "N rows" and feeding the
+    ADF/ACF/ARIMA machinery raw per-event noise instead of a real series."""
     subset = df[[date_col, value_col]].dropna().copy()
-    subset[date_col] = pd.to_datetime(subset[date_col], errors="coerce", format="mixed")
+    subset[date_col] = pd.to_datetime(subset[date_col], errors="coerce", format="mixed").dt.floor("D")
     subset = subset.dropna(subset=[date_col]).sort_values(date_col)
     return subset.groupby(date_col)[value_col].mean()
 

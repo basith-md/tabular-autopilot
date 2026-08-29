@@ -28,6 +28,31 @@ def test_time_series_returns_none_for_too_few_points():
     assert analyze_time_series(df, "date", "sales") is None
 
 
+def test_time_series_aggregates_intraday_timestamps_to_calendar_days():
+    """Discovered on a real NYC-taxi-style dataset: a datetime column with a
+    time-of-day component (pickup timestamps, order times, ...) must be
+    aggregated to one observation per calendar day, not grouped by the exact
+    instant -- otherwise "N observations" silently becomes "N rows" and the
+    series fed to ADF/ACF/ARIMA is raw per-event noise, not a real series."""
+    rng = np.random.default_rng(8)
+    n_days = 40
+    rides_per_day = 50
+    base_dates = pd.date_range("2023-01-01", periods=n_days, freq="D")
+    rows = []
+    for day_offset, day in enumerate(base_dates):
+        times = day + pd.to_timedelta(rng.integers(0, 24 * 3600, size=rides_per_day), unit="s")
+        fares = 10 + 0.2 * day_offset + rng.normal(scale=1.0, size=rides_per_day)
+        rows.append(pd.DataFrame({"pickup": times, "fare": fares}))
+    df = pd.concat(rows, ignore_index=True)
+    assert df["pickup"].nunique() > n_days * (rides_per_day - 5)  # near-unique timestamps, like real ride data
+
+    result = analyze_time_series(df, "pickup", "fare")
+
+    assert result is not None
+    assert result.n_obs == n_days  # aggregated to one point per day, not one per ride
+    assert result.trend_r_squared > 0.5  # the daily upward trend should survive aggregation
+
+
 def test_time_series_selects_an_arima_order_for_trending_data():
     n = 120
     dates = pd.date_range("2021-01-01", periods=n, freq="D")
